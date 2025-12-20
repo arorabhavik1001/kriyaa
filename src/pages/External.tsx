@@ -1,103 +1,109 @@
-import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { ExternalLink, Link, RefreshCw, Maximize2, Minimize2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { 
+  BarChart3, 
+  Users, 
+  FileSpreadsheet, 
+  Settings, 
+  Database,
+  PieChart,
+  ExternalLink
+} from "lucide-react";
+
+interface PRMSCard {
+  title: string;
+  description: string;
+  icon: React.ElementType;
+  url: string;
+  color: string;
+}
+
+const prmsCards: PRMSCard[] = [
+  {
+    title: "Analytics Dashboard",
+    description: "View detailed analytics and reports",
+    icon: BarChart3,
+    url: "https://analytics.google.com",
+    color: "bg-blue-500/10 text-blue-600",
+  },
+  {
+    title: "User Management",
+    description: "Manage users and permissions",
+    icon: Users,
+    url: "https://admin.example.com/users",
+    color: "bg-green-500/10 text-green-600",
+  },
+  {
+    title: "Reports",
+    description: "Access financial and operational reports",
+    icon: FileSpreadsheet,
+    url: "https://reports.example.com",
+    color: "bg-purple-500/10 text-purple-600",
+  },
+  {
+    title: "Database Console",
+    description: "Direct database access and queries",
+    icon: Database,
+    url: "https://database.example.com",
+    color: "bg-orange-500/10 text-orange-600",
+  },
+  {
+    title: "Performance Metrics",
+    description: "Real-time performance monitoring",
+    icon: PieChart,
+    url: "https://metrics.example.com",
+    color: "bg-pink-500/10 text-pink-600",
+  },
+  {
+    title: "System Settings",
+    description: "Configure system preferences",
+    icon: Settings,
+    url: "https://settings.example.com",
+    color: "bg-slate-500/10 text-slate-600",
+  },
+];
 
 const External = () => {
-  const [url, setUrl] = useState("https://example.com");
-  const [inputUrl, setInputUrl] = useState("https://example.com");
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const loadUrl = () => {
-    if (!inputUrl.trim()) return;
-    let finalUrl = inputUrl;
-    if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
-      finalUrl = "https://" + finalUrl;
-    }
-    setIsLoading(true);
-    setUrl(finalUrl);
-    setTimeout(() => setIsLoading(false), 1000);
-  };
-
-  const refresh = () => {
-    setIsLoading(true);
-    setUrl("");
-    setTimeout(() => {
-      setUrl(inputUrl);
-      setIsLoading(false);
-    }, 100);
+  const handleCardClick = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   return (
     <DashboardLayout>
-      <div className={`animate-fade-in ${isFullscreen ? "fixed inset-0 z-50 bg-background p-4" : ""}`}>
+      <div className="animate-fade-in">
         {/* Header */}
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-foreground">External Dashboard</h1>
-            <p className="mt-1 text-muted-foreground">Embed and view external management tools</p>
-          </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setIsFullscreen(!isFullscreen)}
-          >
-            {isFullscreen ? (
-              <><Minimize2 className="mr-2 h-4 w-4" />Exit Fullscreen</>
-            ) : (
-              <><Maximize2 className="mr-2 h-4 w-4" />Fullscreen</>
-            )}
-          </Button>
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-foreground">PRMS</h1>
+          <p className="mt-1 text-muted-foreground">
+            Quick access to external management systems
+          </p>
         </div>
 
-        {/* URL Bar */}
-        <div className="mb-4 flex gap-3">
-          <div className="relative flex-1">
-            <Link className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Enter dashboard URL..."
-              value={inputUrl}
-              onChange={(e) => setInputUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && loadUrl()}
-              className="pl-10 bg-card border-border"
-            />
-          </div>
-          <Button onClick={loadUrl}>
-            <ExternalLink className="mr-2 h-4 w-4" />
-            Load
-          </Button>
-          <Button variant="secondary" onClick={refresh}>
-            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-          </Button>
-        </div>
-
-        {/* Iframe Container */}
-        <div className={`rounded-xl border border-border bg-card overflow-hidden ${isFullscreen ? "h-[calc(100vh-12rem)]" : "h-[calc(100vh-16rem)]"}`}>
-          {url ? (
-            <iframe
-              src={url}
-              className="h-full w-full"
-              title="External Dashboard"
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-            />
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <div className="text-center">
-                <ExternalLink className="mx-auto h-12 w-12 text-muted-foreground/50" />
-                <p className="mt-4 text-lg font-medium text-foreground">No Dashboard Loaded</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Enter a URL above to embed your external management dashboard
-                </p>
-              </div>
-            </div>
-          )}
+        {/* Cards Grid */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {prmsCards.map((card) => (
+            <Card
+              key={card.title}
+              className="group cursor-pointer border-border bg-card transition-all duration-200 hover:border-primary/50 hover:shadow-lg"
+              onClick={() => handleCardClick(card.url)}
+            >
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className={`rounded-lg p-3 ${card.color}`}>
+                    <card.icon className="h-6 w-6" />
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+                </div>
+                <h3 className="mt-4 font-semibold text-foreground">{card.title}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{card.description}</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
         {/* Info */}
-        <p className="mt-3 text-xs text-muted-foreground">
-          Note: Some websites may not allow embedding due to security restrictions (X-Frame-Options).
+        <p className="mt-6 text-xs text-muted-foreground">
+          Click on any card to open the external system in a new tab.
         </p>
       </div>
     </DashboardLayout>

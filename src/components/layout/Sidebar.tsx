@@ -13,7 +13,7 @@ const navItems = [
   { title: "Overview", path: "/", icon: LayoutDashboard },
   { title: "Tasks", path: "/tasks", icon: CheckSquare },
   { title: "Notes", path: "/notes", icon: FileText },
-  { title: "External Dashboard", path: "/external", icon: ExternalLink },
+  { title: "PRMS", path: "/external", icon: ExternalLink },
 ];
 
 const bottomItems = [
