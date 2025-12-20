@@ -1,19 +1,30 @@
 import { FileText } from "lucide-react";
+import { useState, useEffect } from "react";
+import { db } from "@/lib/firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Note {
   id: string;
   title: string;
-  preview: string;
-  updatedAt: string;
+  content: string;
+  updatedAt: any;
 }
 
-const recentNotes: Note[] = [
-  { id: "1", title: "Strategic Planning 2025", preview: "Key initiatives for next year including expansion into APAC markets...", updatedAt: "2 hours ago" },
-  { id: "2", title: "Product Roadmap Q1", preview: "Feature prioritization based on customer feedback and market analysis...", updatedAt: "Yesterday" },
-  { id: "3", title: "Team Restructure Ideas", preview: "Considerations for engineering team growth and new leadership roles...", updatedAt: "2 days ago" },
-];
-
 export function RecentNotes() {
+  const { user } = useAuth();
+  const [recentNotes, setRecentNotes] = useState<Note[]>([]);
+
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, "notes"), where("userId", "==", user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const notesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Note));
+      setRecentNotes(notesData.slice(0, 3));
+    });
+    return () => unsubscribe();
+  }, [user]);
+
   return (
     <div className="rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
@@ -34,14 +45,20 @@ export function RecentNotes() {
                 <p className="font-medium text-foreground group-hover:text-primary transition-colors">
                   {note.title}
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
-                  {note.preview}
+                <p className="mt-1 text-sm text-muted-foreground line-clamp-2" dangerouslySetInnerHTML={{ __html: note.content }}>
                 </p>
-                <p className="mt-2 text-xs text-muted-foreground">{note.updatedAt}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : new Date(note.updatedAt).toLocaleDateString()}
+                </p>
               </div>
             </div>
           </div>
         ))}
+        {recentNotes.length === 0 && (
+            <div className="p-6 text-center text-muted-foreground text-sm">
+                No notes yet.
+            </div>
+        )}
       </div>
     </div>
   );

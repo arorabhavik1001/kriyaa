@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, Circle, Clock, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { db } from "@/lib/firebase";
+import { collection, query, where, onSnapshot, updateDoc, doc } from "firebase/firestore";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Task {
   id: string;
@@ -10,14 +13,6 @@ interface Task {
   completed: boolean;
 }
 
-const initialTasks: Task[] = [
-  { id: "1", title: "Review Q4 budget proposal", priority: "high", dueDate: "Today", completed: false },
-  { id: "2", title: "Prepare board presentation", priority: "high", dueDate: "Tomorrow", completed: false },
-  { id: "3", title: "Team 1:1 with Sarah", priority: "medium", dueDate: "Wed", completed: false },
-  { id: "4", title: "Sign off on marketing campaign", priority: "medium", dueDate: "Thu", completed: true },
-  { id: "5", title: "Review hiring pipeline", priority: "low", dueDate: "Fri", completed: false },
-];
-
 const priorityColors = {
   high: "text-destructive",
   medium: "text-warning",
@@ -25,12 +20,24 @@ const priorityColors = {
 };
 
 export function QuickTasks() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const { user } = useAuth();
+  const [tasks, setTasks] = useState<Task[]>([]);
 
-  const toggleTask = (id: string) => {
-    setTasks(tasks.map(task => 
-      task.id === id ? { ...task, completed: !task.completed } : task
-    ));
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, "tasks"), where("userId", "==", user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const tasksData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Task));
+      // Sort by priority or date if needed, taking top 5
+      setTasks(tasksData.slice(0, 5));
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const toggleTask = async (id: string, currentStatus: boolean) => {
+    await updateDoc(doc(db, "tasks", id), {
+      completed: !currentStatus
+    });
   };
 
   return (
@@ -51,11 +58,11 @@ export function QuickTasks() {
             )}
           >
             <button
-              onClick={() => toggleTask(task.id)}
+              onClick={() => toggleTask(task.id, task.completed)}
               className={cn(
-                "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all",
+                "flex h-5 w-5 items-center justify-center rounded-full border transition-colors",
                 task.completed
-                  ? "border-success bg-success text-success-foreground"
+                  ? "border-primary bg-primary text-primary-foreground"
                   : "border-muted-foreground hover:border-primary"
               )}
             >
@@ -63,23 +70,34 @@ export function QuickTasks() {
             </button>
             <div className="flex-1 min-w-0">
               <p className={cn(
-                "text-sm font-medium text-foreground truncate",
-                task.completed && "line-through"
+                "font-medium text-sm text-foreground truncate transition-all",
+                task.completed && "line-through text-muted-foreground"
               )}>
                 {task.title}
               </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Flag className={cn("h-3.5 w-3.5", priorityColors[task.priority])} />
-              {task.dueDate && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  {task.dueDate}
+              <div className="flex items-center gap-2 mt-1">
+                <span className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded-full border",
+                  // @ts-ignore
+                  priorityColors[task.priority]
+                )}>
+                  {task.priority}
                 </span>
-              )}
+                {task.dueDate && (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {task.dueDate}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         ))}
+        {tasks.length === 0 && (
+            <div className="p-6 text-center text-muted-foreground text-sm">
+                No tasks yet.
+            </div>
+        )}
       </div>
     </div>
   );

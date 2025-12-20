@@ -20,46 +20,67 @@ interface PRMSCard {
 
 const prmsCards: PRMSCard[] = [
   {
-    title: "Analytics Dashboard",
-    description: "View detailed analytics and reports",
+    title: "PRMS-DYPH",
+    description: "DYPH Preaching Management System",
     icon: BarChart3,
-    url: "https://analytics.google.com",
+    url: "https://prms-dyph-sec67.web.app",
     color: "bg-blue-500/10 text-blue-600",
   },
   {
-    title: "User Management",
-    description: "Manage users and permissions",
-    icon: Users,
-    url: "https://admin.example.com/users",
-    color: "bg-green-500/10 text-green-600",
+    title: "PRMS-Gita",
+    description: "Gita Class Preaching Management System (Vidyanidhi Gaurang Prabhuji)",
+    icon: BarChart3,
+    url: "https://prms-gita.web.app",
+    color: "bg-blue-500/10 text-blue-600",
   },
   {
-    title: "Reports",
-    description: "Access financial and operational reports",
-    icon: FileSpreadsheet,
-    url: "https://reports.example.com",
-    color: "bg-purple-500/10 text-purple-600",
+    title: "PRMS-IYF-SOS",
+    description: "IYF SOS Preaching Management System",
+    icon: BarChart3,
+    url: "https://prms-sos.web.app",
+    color: "bg-blue-500/10 text-blue-600",
   },
   {
-    title: "Database Console",
-    description: "Direct database access and queries",
-    icon: Database,
-    url: "https://database.example.com",
-    color: "bg-orange-500/10 text-orange-600",
+    title: "PRMS-MHP",
+    description: "IYF (Mangal Hari Prabhuji) Preaching Management System",
+    icon: BarChart3,
+    url: "https://prms-iyf-mhp.web.app",
+    color: "bg-blue-500/10 text-blue-600",
   },
   {
-    title: "Performance Metrics",
-    description: "Real-time performance monitoring",
-    icon: PieChart,
-    url: "https://metrics.example.com",
-    color: "bg-pink-500/10 text-pink-600",
+    title: "PRMS-Sec-45",
+    description: "Sec-45 Preaching Management System",
+    icon: BarChart3,
+    url: "https://prms-sec45.web.app",
+    color: "bg-blue-500/10 text-blue-600",
   },
   {
-    title: "System Settings",
-    description: "Configure system preferences",
-    icon: Settings,
-    url: "https://settings.example.com",
-    color: "bg-slate-500/10 text-slate-600",
+    title: "PRMS-NITP",
+    description: "NIT Patna Preaching Management System",
+    icon: BarChart3,
+    url: "https://prms-nitp.web.app",
+    color: "bg-blue-500/10 text-blue-600",
+  },
+  {
+    title: "PRMS-Bhishma",
+    description: "Bhishma Dept. Preaching Management System",
+    icon: BarChart3,
+    url: "https://prms-bhishma.web.app",
+    color: "bg-blue-500/10 text-blue-600",
+  },
+  {
+    title: "PRMS-Aradhya",
+    description: "Aradhya Gaur Prabhuji Preaching Management System",
+    icon: BarChart3,
+    url: "https://prms-aradhya.web.app",
+    color: "bg-blue-500/10 text-blue-600",
+  },
+  {
+    title: "PRMS-Sevya",
+    description: "Sevya Giridhari Prabhuji Preaching Management System",
+    icon: BarChart3,
+    url: "https://prms-sevya.web.app",
+    color: "bg-blue-500/10 text-blue-600",
   },
 ];
 
@@ -100,11 +121,6 @@ const External = () => {
             </Card>
           ))}
         </div>
-
-        {/* Info */}
-        <p className="mt-6 text-xs text-muted-foreground">
-          Click on any card to open the external system in a new tab.
-        </p>
       </div>
     </DashboardLayout>
   );
