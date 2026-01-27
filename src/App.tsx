@@ -8,8 +8,11 @@ import Login from "./pages/Login";
 import Index from "./pages/Index";
 import Tasks from "./pages/Tasks";
 import Notes from "./pages/Notes";
+import SavedLinks from "./pages/SavedLinks";
+import Categories from "./pages/Categories";
 import External from "./pages/External";
 import Settings from "./pages/Settings";
+import Schedule from "./pages/Schedule";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -55,10 +58,34 @@ const App = () => (
               }
             />
             <Route
+              path="/links"
+              element={
+                <ProtectedRoute>
+                  <SavedLinks />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/categories"
+              element={
+                <ProtectedRoute>
+                  <Categories />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/external"
               element={
                 <ProtectedRoute>
                   <External />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/schedule"
+              element={
+                <ProtectedRoute>
+                  <Schedule />
                 </ProtectedRoute>
               }
             />

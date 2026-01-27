@@ -2,7 +2,10 @@ import { NavLink, useLocation } from "react-router-dom";
 import { 
   LayoutDashboard, 
   CheckSquare, 
-  FileText, 
+  FileText,
+  Link,
+  Tag,
+  CalendarDays,
   ExternalLink,
   Settings,
   User,
@@ -14,8 +17,11 @@ import { Button } from "@/components/ui/button";
 
 const navItems = [
   { title: "Overview", path: "/", icon: LayoutDashboard },
+  { title: "Schedule", path: "/schedule", icon: CalendarDays },
   { title: "Tasks", path: "/tasks", icon: CheckSquare },
   { title: "Notes", path: "/notes", icon: FileText },
+  { title: "Saved Links", path: "/links", icon: Link },
+  { title: "Categories", path: "/categories", icon: Tag },
   { title: "PRMS", path: "/external", icon: ExternalLink },
 ];
 
@@ -28,7 +34,7 @@ export function Sidebar() {
   const { logout } = useAuth();
 
   return (
-    <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-sidebar border-r border-sidebar-border">
+    <aside className="h-[100dvh] w-64 flex-shrink-0 overflow-hidden bg-sidebar border-r border-sidebar-border flex flex-col lg:h-screen lg:sticky lg:top-0">
       <div className="flex h-full flex-col">
         {/* Logo */}
         <div className="flex h-16 items-center gap-3 border-b border-sidebar-border px-6">
@@ -42,7 +48,7 @@ export function Sidebar() {
         </div>
 
         {/* Main Nav */}
-        <nav className="flex-1 space-y-1 px-3 py-4">
+        <nav className="flex-1 min-h-0 overflow-y-auto space-y-1 px-3 py-4">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
@@ -64,7 +70,7 @@ export function Sidebar() {
         </nav>
 
         {/* Bottom Nav */}
-        <div className="border-t border-sidebar-border p-3">
+        <div className="border-t border-sidebar-border p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           {/* {bottomItems.map((item) => (
             <NavLink
               key={item.path}

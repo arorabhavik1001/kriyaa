@@ -1,8 +1,10 @@
-import { FileText } from "lucide-react";
+import { FileText, Plus } from "lucide-react";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 
 interface Note {
   id: string;
@@ -13,6 +15,7 @@ interface Note {
 
 export function RecentNotes() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [recentNotes, setRecentNotes] = useState<Note[]>([]);
 
   useEffect(() => {
@@ -29,13 +32,25 @@ export function RecentNotes() {
     <div className="rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <h3 className="font-semibold text-foreground">Recent Notes</h3>
-        <span className="text-xs text-muted-foreground">{recentNotes.length} notes</span>
+        <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{recentNotes.length} notes</span>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8 rounded-full border border-border/40 hover:bg-primary/10 hover:text-primary transition-colors"
+              onClick={() => navigate("/notes")}
+              title="Go to Notes"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+        </div>
       </div>
       <div className="divide-y divide-border">
         {recentNotes.map((note) => (
           <div
             key={note.id}
-            className="group cursor-pointer px-6 py-4 transition-all duration-200 hover:bg-accent/50"
+            onClick={() => navigate("/notes")}
+            className="group cursor-pointer px-6 py-4 transition-all duration-200 hover:bg-accent/50 active:scale-[0.99]"
           >
             <div className="flex items-start gap-3">
               <div className="mt-0.5 rounded-lg bg-secondary p-2">
