@@ -34,14 +34,36 @@ function initFirebaseAdmin() {
   };
 
   if (b64) {
-    const raw = Buffer.from(b64, "base64").toString("utf8");
-    const serviceAccount = JSON.parse(raw);
-    return initWith(serviceAccount, "b64");
+    let raw = "";
+    try {
+      raw = Buffer.from(b64, "base64").toString("utf8");
+    } catch (e) {
+      throw new Error(
+        "Invalid FIREBASE_SERVICE_ACCOUNT_B64: base64 decode failed. Ensure the value is a single-line base64 string.",
+      );
+    }
+
+    try {
+      const serviceAccount = JSON.parse(raw);
+      return initWith(serviceAccount, "b64");
+    } catch (e) {
+      const looksLikeJsonObject = raw.trimStart().startsWith("{");
+      throw new Error(
+        `Invalid FIREBASE_SERVICE_ACCOUNT_B64: decoded value is not valid JSON (len=${raw.length}, startsWith\"{\"=${looksLikeJsonObject}). ` +
+          "Make sure you base64-encoded the entire service account JSON file and did not paste JSON directly.",
+      );
+    }
   }
 
   if (json) {
-    const serviceAccount = JSON.parse(json);
-    return initWith(serviceAccount, "json");
+    try {
+      const serviceAccount = JSON.parse(json);
+      return initWith(serviceAccount, "json");
+    } catch (e) {
+      throw new Error(
+        "Invalid FIREBASE_SERVICE_ACCOUNT_JSON: must be valid one-line JSON. Prefer FIREBASE_SERVICE_ACCOUNT_B64 on Render.",
+      );
+    }
   }
 
   if (path) {
