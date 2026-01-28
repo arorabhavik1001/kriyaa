@@ -40,6 +40,7 @@ app.get("/debug/config", (_req, res) => {
       googleRedirectUri,
       googleRedirectHost: redirectHost,
       hasFirebaseServiceAccountJson: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+      hasFirebaseServiceAccountB64: !!process.env.FIREBASE_SERVICE_ACCOUNT_B64,
       hasFirebaseServiceAccountPath: !!process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
     },
   });
