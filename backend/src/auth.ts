@@ -14,14 +14,17 @@ export function signState(state: AuthState) {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error("Missing JWT_SECRET");
 
-  return jwt.sign(state, secret, { expiresIn: "10m" });
+  // Users may take time on Google's consent screen; keep state valid longer.
+  // Also helps with minor clock skew between environments.
+  const expiresIn = (process.env.STATE_TTL as jwt.SignOptions["expiresIn"]) ?? "1h";
+  return jwt.sign(state, secret, { expiresIn });
 }
 
 export function verifyState(token: string): AuthState {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error("Missing JWT_SECRET");
 
-  const decoded = jwt.verify(token, secret);
+  const decoded = jwt.verify(token, secret, { clockTolerance: 60 });
   if (typeof decoded !== "object" || decoded === null) throw new Error("Invalid state");
   
   // Basic validation
