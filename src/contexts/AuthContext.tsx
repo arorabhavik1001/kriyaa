@@ -23,7 +23,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const refreshCalendarStatus = async (currentUser: User) => {
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
       const idToken = await currentUser.getIdToken();
       const resp = await fetch(`${backendUrl}/api/calendar/status`, {
         headers: {
@@ -64,7 +64,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const signInWithGoogle = async () => {
     try {
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
       const resp = await fetch(`${backendUrl}/auth/login`);
       if (!resp.ok) throw new Error("Failed to get login url");
       const { url } = await resp.json();
@@ -85,7 +85,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!currentUser) return;
 
       const idToken = await currentUser.getIdToken();
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
 
       const resp = await fetch(`${backendUrl}/auth/google/url`, {
         method: "POST",

@@ -49,7 +49,7 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
         params.set("maxResults", String(options.maxResults ?? 10));
 
         const idToken = await user.getIdToken();
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
 
         const response = await fetch(
           `${backendUrl}/api/calendar/events?${params.toString()}`,

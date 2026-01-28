@@ -16,6 +16,35 @@ const corsOrigin = process.env.CORS_ORIGIN || process.env.FRONTEND_URL || "http:
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 
+app.get("/debug/config", (_req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || "";
+  const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || "";
+
+  let redirectHost = "";
+  try {
+    redirectHost = googleRedirectUri ? new URL(googleRedirectUri).host : "";
+  } catch {
+    redirectHost = "(invalid)";
+  }
+
+  return res.json({
+    ok: true,
+    env: {
+      nodeEnv: process.env.NODE_ENV || "",
+      port: process.env.PORT || "",
+      frontendUrl,
+      corsOrigin,
+      hasJwtSecret: !!process.env.JWT_SECRET,
+      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      googleRedirectUri,
+      googleRedirectHost: redirectHost,
+      hasFirebaseServiceAccountJson: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+      hasFirebaseServiceAccountPath: !!process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
+    },
+  });
+});
+
 function mkReqId() {
   return `${Date.now().toString(36)}-${Math.random().toString(16).slice(2, 10)}`;
 }
@@ -171,6 +200,7 @@ app.get("/auth/google/callback", async (req, res) => {
     }
 
     const redirectTo = process.env.FRONTEND_URL || "http://localhost:8080";
+    console.log(redirectTo)
     
     if (mode === "login") {
       const customToken = await adminAuth.createCustomToken(targetUid);
@@ -181,8 +211,21 @@ app.get("/auth/google/callback", async (req, res) => {
       return res.redirect(`${redirectTo}/schedule?calendar=connected`);
     }
   } catch (e) {
-    console.error(e);
-    return res.status(500).send("OAuth callback failed");
+    const err = e as any;
+    const reqId = (req as any).reqId || "-";
+    const message = typeof err?.message === "string" ? err.message : String(err);
+    const code = typeof err?.code === "string" ? err.code : undefined;
+    const stack = typeof err?.stack === "string" ? err.stack : undefined;
+
+    console.error(`[${reqId}] OAuth callback failed`, {
+      message,
+      code,
+      path: req.originalUrl,
+    });
+    if (stack) console.error(stack);
+
+    // Keep response minimal; the details are in logs.
+    return res.status(500).send(`OAuth callback failed (reqId=${reqId})`);
   }
 });
 
