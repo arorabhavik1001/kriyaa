@@ -5,10 +5,15 @@ function initFirebaseAdmin() {
   if (admin.apps.length) return admin;
 
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  const path = "prj-mgmt-fabb3-firebase-adminsdk-fbsvc-7c752b4d01.json";
+  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 
   if (json) {
     const serviceAccount = JSON.parse(json);
+    // Render/env providers often store multiline private keys with escaped newlines.
+    // firebase-admin expects actual newlines.
+    if (typeof serviceAccount?.private_key === "string") {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+    }
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
@@ -18,6 +23,9 @@ function initFirebaseAdmin() {
   if (path) {
     const raw = fs.readFileSync(path, "utf8");
     const serviceAccount = JSON.parse(raw);
+    if (typeof serviceAccount?.private_key === "string") {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+    }
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
