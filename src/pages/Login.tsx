@@ -14,10 +14,10 @@ const Login = () => {
       <div className="text-center">
         <img
           src="/logo.png"
-          alt="Kriyaa"
+          alt="Ekaagra"
           className="mx-auto mb-4 h-16 w-16 rounded-xl"
         />
-        <h1 className="mb-4 text-4xl font-bold">Hare Krishna, Welcome to Kriyaa</h1>
+        <h1 className="mb-4 text-4xl font-bold">Hare Krishna, Welcome to Ekaagra</h1>
         <p className="mb-8 text-muted-foreground">Please sign in to continue</p>
         <Button onClick={signInWithGoogle} size="lg">
           Sign in with Google

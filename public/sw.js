@@ -1,4 +1,4 @@
-const CACHE_NAME = "kriyaa-planner-static-v2";
+const CACHE_NAME = "Ekaagra-planner-static-v2";
 
 const STATIC_ASSETS = [
   "/manifest.webmanifest",

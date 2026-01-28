@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 
 export function UpcomingEvents() {
   const { events, loading, error } = useGoogleCalendar();
-  const { user } = useAuth();
+  const { user, calendarConnected, connectGoogleCalendar } = useAuth();
   const navigate = useNavigate();
 
   const getDuration = (start: any, end: any) => {
@@ -116,7 +116,20 @@ export function UpcomingEvents() {
            </div>
         )}
 
-        {!loading && user && events.length === 0 && (
+        {!loading && user && !calendarConnected && (
+          <div className="flex h-full flex-col items-center justify-center p-4 text-center min-h-[200px] gap-3">
+            <Calendar className="h-10 w-10 text-muted-foreground/30" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Connect Google Calendar</p>
+              <p className="text-xs text-muted-foreground mt-1">Access expired or not connected.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={connectGoogleCalendar}>
+              Reconnect
+            </Button>
+          </div>
+        )}
+
+            {!loading && user && calendarConnected && events.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center p-4 text-center min-h-[200px]">
              <div className="bg-muted/50 p-4 rounded-full mb-3">
                 <Calendar className="h-6 w-6 text-muted-foreground" />

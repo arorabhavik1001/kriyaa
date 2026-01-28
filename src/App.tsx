@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Login from "./pages/Login";
+import AuthCallback from "./pages/AuthCallback";
 import Index from "./pages/Index";
 import Tasks from "./pages/Tasks";
 import Notes from "./pages/Notes";
@@ -32,6 +33,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/login" element={<Login />} />
             <Route
               path="/"

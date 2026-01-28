@@ -139,6 +139,12 @@ export function QuickTasks() {
     setExpandedTasks((prev) => new Set(prev).add(parentId));
   };
 
+  const editTaskTitle = async (taskId: string, title: string) => {
+    if (!user || !title.trim()) return;
+    await updateDoc(doc(db, "tasks", taskId), { title: title.trim() });
+    toast.success("Task updated", { description: title.trim() });
+  };
+
   const deleteTask = async (id: string) => {
     const tasksToDelete = [id];
     const findSubtasks = (parentId: string) => {
@@ -321,6 +327,7 @@ export function QuickTasks() {
             onToggleExpand={toggleExpand}
             onToggleTask={toggleTask}
             onAddSubtask={addSubtask}
+            onEditTaskTitle={editTaskTitle}
             onDeleteTask={deleteTask}
           />
         ))}
@@ -351,6 +358,7 @@ export function QuickTasks() {
                         onToggleExpand={toggleExpand}
                         onToggleTask={toggleTask}
                         onAddSubtask={addSubtask}
+                        onEditTaskTitle={editTaskTitle}
                         onDeleteTask={deleteTask}
                       />
                     ))}

@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -256,12 +258,24 @@ function TimelineEventCard({ positioned }: { positioned: PositionedEvent }) {
   );
 }
 
+
 export default function Schedule() {
   const [view, setView] = useState<ScheduleView>("month");
   const [activeDate, setActiveDate] = useState(() => new Date());
+  const [showReconnect, setShowReconnect] = useState(false);
+  const { connectGoogleCalendar, calendarConnected } = useAuth();
 
   const query = useMemo(() => getRangeForView(view, activeDate), [view, activeDate]);
   const { events, loading, error } = useGoogleCalendar(query);
+
+  // Show reconnect banner if error is auth-related or accessToken is null after an error
+  const calendarDisconnected =
+    error &&
+    (error.toLowerCase().includes("token") ||
+      error.toLowerCase().includes("auth") ||
+      error.toLowerCase().includes("unauthorized") ||
+      error.toLowerCase().includes("forbidden") ||
+      !calendarConnected);
 
   const normalizedEvents = useMemo(() => {
     const e = events as unknown as CalendarEvent[];
@@ -382,6 +396,30 @@ export default function Schedule() {
   return (
     <DashboardLayout>
       <div className="animate-fade-in max-w-6xl mx-auto">
+        {/* Calendar disconnected banner */}
+        {calendarDisconnected && (
+          <div className="mb-4">
+            <Alert variant="destructive" className="flex items-center justify-between gap-4">
+              <div>
+                <AlertTitle>Calendar disconnected</AlertTitle>
+                <AlertDescription>
+                  Calendar access expired or disconnected. Click to reconnect.
+                </AlertDescription>
+              </div>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await connectGoogleCalendar();
+                  setShowReconnect(false);
+                }}
+              >
+                Reconnect
+              </Button>
+            </Alert>
+          </div>
+        )}
+
+        {/* ...existing code... */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
@@ -419,143 +457,8 @@ export default function Schedule() {
             </Button>
           </div>
         </div>
-
-        <Tabs value={view} onValueChange={(v) => setView(v as ScheduleView)}>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <TabsList className="w-full sm:w-auto">
-              <TabsTrigger value="day" className="flex-1 sm:flex-none">Day</TabsTrigger>
-              <TabsTrigger value="week" className="flex-1 sm:flex-none">Week</TabsTrigger>
-              <TabsTrigger value="month" className="flex-1 sm:flex-none">Month</TabsTrigger>
-              <TabsTrigger value="year" className="flex-1 sm:flex-none">Year</TabsTrigger>
-            </TabsList>
-
-            <div className="text-sm font-medium text-foreground rounded-lg border border-border bg-card px-3 py-2">
-              {formatRangeLabel(view, activeDate)}
-            </div>
-          </div>
-
-          <TabsContent value="day">
-            <div className="rounded-xl border border-border bg-card overflow-hidden">
-              <div className="border-b border-border px-4 py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">
-                        {isToday(activeDate) ? "Today" : format(activeDate, "EEEE")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{format(activeDate, "PPP")}</p>
-                    </div>
-
-                    <div className="lg:hidden">
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground"
-                            aria-label="Pick date"
-                          >
-                            <Calendar className="h-3.5 w-3.5" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <CalendarComponent
-                            mode="single"
-                            selected={activeDate}
-                            onSelect={(d) => d && setActiveDate(d)}
-                            modifiers={{ hasEvents: monthDaysWithEvents }}
-                            modifiersClassNames={{ hasEvents: "bg-primary/10 text-primary" }}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    </div>
-                  </div>
-                  <span className="text-xs font-medium text-muted-foreground rounded-full bg-muted/30 px-2 py-1">
-                    {loading ? "Loading…" : `${dayEvents.length} events`}
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[320px_1fr]">
-                <div className="hidden rounded-xl border border-border bg-background lg:block">
-                  <CalendarComponent
-                    mode="single"
-                    selected={activeDate}
-                    onSelect={(d) => d && setActiveDate(d)}
-                    modifiers={{ hasEvents: monthDaysWithEvents }}
-                    modifiersClassNames={{ hasEvents: "bg-primary/10 text-primary" }}
-                  />
-                </div>
-
-                <div className="rounded-xl border border-border bg-background overflow-hidden">
-                  <div className="border-b border-border px-4 py-3">
-                    <p className="text-sm font-semibold text-foreground">Timeline</p>
-                    <p className="text-xs text-muted-foreground">Drag to scroll</p>
-                  </div>
-
-                  <div className="h-[560px] overflow-auto">
-                    <div className="min-w-[520px]">
-                      <div className="grid grid-cols-[64px_1fr]">
-                        <div className="border-r border-border bg-muted/10" />
-                        <div className="border-b border-border bg-muted/10 px-3 py-2 text-xs font-semibold text-muted-foreground">
-                          {format(activeDate, "EEE, MMM d")}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-[64px_1fr]">
-                        <div className="relative border-r border-border bg-muted/5" style={{ height: HOUR_HEIGHT_PX * 24 }}>
-                          {Array.from({ length: 24 }, (_, h) => (
-                            <div
-                              key={h}
-                              className="absolute left-0 right-0 pr-2 text-right text-[10px] text-muted-foreground"
-                              style={{ top: h * HOUR_HEIGHT_PX - 6 }}
-                            >
-                              {h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`}
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="relative" style={{ height: HOUR_HEIGHT_PX * 24 }}>
-                          {Array.from({ length: 24 }, (_, h) => (
-                            <div
-                              key={h}
-                              className="absolute left-0 right-0 border-t border-border/60"
-                              style={{ top: h * HOUR_HEIGHT_PX }}
-                            />
-                          ))}
-
-                          {positionEventsForDayTimeline(dayEvents, activeDate).map((p) => (
-                            <TimelineEventCard key={p.event.id} positioned={p} />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 border-t border-border p-4">
-                    <p className="text-sm font-semibold text-foreground mb-2">Agenda</p>
-                    <ScrollArea className="h-[220px]">
-                      {error && (
-                        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
-                          {error}
-                        </div>
-                      )}
-                      {!error && !loading && dayEvents.length === 0 && (
-                        <div className="text-sm text-muted-foreground">No events for this day.</div>
-                      )}
-                      {!error && !loading && dayEvents.length > 0 && (
-                        <div className="space-y-2">
-                          {dayEvents.map((e) => (
-                            <EventRow key={e.id} event={e} />
-                          ))}
-                        </div>
-                      )}
-                    </ScrollArea>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </TabsContent>
-
+        {/* ...existing code... */}
+        <Tabs>
           <TabsContent value="week">
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="border-b border-border px-4 py-3">

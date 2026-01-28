@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Check, Plus, Flag, Trash2, Calendar, Bell, Repeat, ChevronRight, ChevronDown, GripVertical, CornerDownRight, Search, ListFilter, ArrowUpDown } from "lucide-react";
+import { Check, Plus, Flag, Trash2, Calendar, Bell, Repeat, ChevronRight, ChevronDown, GripVertical, Pencil, CornerDownRight, Search, ListFilter, ArrowUpDown } from "lucide-react";
 import { cn, buildTaskTree } from "@/lib/utils";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, writeBatch } from "firebase/firestore";
@@ -64,6 +64,8 @@ const Tasks = () => {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [completingTasks, setCompletingTasks] = useState<Set<string>>(new Set());
   const newTaskInputRef = useRef<HTMLInputElement | null>(null);
+  const [editingTasks, setEditingTasks] = useState<Set<string>>(new Set());
+  const [editDrafts, setEditDrafts] = useState<Record<string, string>>({});
   const [subtaskEditors, setSubtaskEditors] = useState<Set<string>>(new Set());
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
 
@@ -109,7 +111,9 @@ const Tasks = () => {
     if (!user) return;
 
     const currentTasks = tasks.filter(t => t.parentId === parentId);
-    const maxOrder = currentTasks.length > 0 ? Math.max(...currentTasks.map(t => t.order || 0)) : 0;
+    const siblingOrders = currentTasks.map((t) => (typeof t.order === "number" ? t.order : 0));
+    const minOrder = siblingOrders.length > 0 ? Math.min(...siblingOrders) : 0;
+    const nextOrder = siblingOrders.length > 0 ? minOrder - 1 : 0;
 
     await addDoc(collection(db, "tasks"), {
       title: newTask,
@@ -121,8 +125,8 @@ const Tasks = () => {
       dueDate: newDueDate ? newDueDate : null,
       reminder: newReminder,
       repeat: newRepeat,
-      parentId: null,
-      order: maxOrder + 1
+      parentId: parentId ?? null,
+      order: nextOrder
     });
     setNewTask("");
     setNewPriority("medium");
@@ -132,26 +136,33 @@ const Tasks = () => {
     setNewRepeat("none");
   };
 
+  const saveTaskTitle = async (taskId: string, title: string) => {
+    if (!title.trim()) return;
+    await updateDoc(doc(db, "tasks", taskId), { title: title.trim() });
+  };
+
   const addSubtask = async (parentId: string, title: string) => {
     if (!user || !title.trim()) return;
-    
-    const siblingTasks = tasks.filter(t => t.parentId === parentId);
-    const maxOrder = siblingTasks.length > 0 ? Math.max(...siblingTasks.map(t => t.order || 0)) : 0;
+
+    const siblingTasks = tasks.filter((t) => t.parentId === parentId);
+    const siblingOrders = siblingTasks.map((t) => (typeof t.order === "number" ? t.order : 0));
+    const minOrder = siblingOrders.length > 0 ? Math.min(...siblingOrders) : 0;
+    const nextOrder = siblingOrders.length > 0 ? minOrder - 1 : 0;
+
     const defaultCategory = categories[0]?.name || "General";
 
     await addDoc(collection(db, "tasks"), {
-      title: title,
+      title: title.trim(),
       priority: "medium",
       completed: false,
       category: defaultCategory,
       userId: user.uid,
       createdAt: new Date(),
-      parentId: parentId,
-      order: maxOrder + 1
+      parentId,
+      order: nextOrder,
     });
-    
-    // Auto-expand parent
-    setExpandedTasks(prev => new Set(prev).add(parentId));
+
+    setExpandedTasks((prev) => new Set(prev).add(parentId));
   };
 
   const toggleTask = async (task: Task) => {
@@ -332,15 +343,14 @@ const Tasks = () => {
   const TaskItem = ({ task, level = 0 }: { task: Task; level?: number }) => {
     const hasSubtasks = task.subtasks && task.subtasks.length > 0;
     const isExpanded = expandedTasks.has(task.id);
+    const isEditing = editingTasks.has(task.id);
+    const draft = editDrafts[task.id] ?? task.title;
     const isAddingSubtask = subtaskEditors.has(task.id);
 
     const openAddSubtask = () => {
-      setSubtaskEditors((prev) => {
-        const next = new Set(prev);
-        next.add(task.id);
-        return next;
-      });
+      setSubtaskEditors((prev) => new Set(prev).add(task.id));
       setExpandedTasks((prevExpanded) => new Set(prevExpanded).add(task.id));
+      setSubtaskDrafts((prev) => ({ ...prev, [task.id]: prev[task.id] ?? "" }));
     };
 
     const closeAddSubtask = () => {
@@ -358,8 +368,44 @@ const Tasks = () => {
     const handleAddSubtask = async () => {
       const title = (subtaskDrafts[task.id] ?? "").trim();
       if (!title) return;
-      await addSubtask(task.id, title);
-      closeAddSubtask();
+      try {
+        await addSubtask(task.id, title);
+        closeAddSubtask();
+        toast.success("Subtask added", { description: title });
+      } catch (e) {
+        console.error(e);
+        toast.error("Couldn't add subtask", { description: "Please try again." });
+      }
+    };
+
+    const openEdit = () => {
+      setEditingTasks((prev) => new Set(prev).add(task.id));
+      setEditDrafts((prev) => ({ ...prev, [task.id]: task.title }));
+    };
+
+    const closeEdit = () => {
+      setEditingTasks((prev) => {
+        const next = new Set(prev);
+        next.delete(task.id);
+        return next;
+      });
+      setEditDrafts((prev) => {
+        const { [task.id]: _removed, ...rest } = prev;
+        return rest;
+      });
+    };
+
+    const handleSaveEdit = async () => {
+      const nextTitle = (editDrafts[task.id] ?? "").trim();
+      if (!nextTitle) return;
+      try {
+        await saveTaskTitle(task.id, nextTitle);
+        closeEdit();
+        toast.success("Task updated", { description: nextTitle });
+      } catch (e) {
+        console.error(e);
+        toast.error("Couldn't update task", { description: "Please try again." });
+      }
     };
 
     return (
@@ -421,14 +467,42 @@ const Tasks = () => {
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      "font-medium truncate transition-all",
-                      task.completed && "line-through text-muted-foreground",
-                    )}
-                  >
-                    {task.title}
-                  </p>
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <Input
+                        value={draft}
+                        onChange={(e) =>
+                          setEditDrafts((prev) => ({
+                            ...prev,
+                            [task.id]: e.target.value,
+                          }))
+                        }
+                        className="h-9"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveEdit();
+                          if (e.key === "Escape") closeEdit();
+                        }}
+                        aria-label="Edit task title"
+                      />
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={handleSaveEdit} className="h-8">
+                          Save
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={closeEdit} className="h-8">
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p
+                      className={cn(
+                        "font-medium truncate transition-all",
+                        task.completed && "line-through text-muted-foreground",
+                      )}
+                    >
+                      {task.title}
+                    </p>
+                  )}
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                     <span
                       className={cn(
@@ -454,18 +528,36 @@ const Tasks = () => {
                   </div>
                 </div>
 
-                <div className="hidden sm:flex items-center gap-1 opacity-0 transition-opacity sm:group-hover:opacity-100">
+                <div className="hidden sm:flex items-center gap-1 transition-opacity">
                   <Button
                     variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs whitespace-nowrap"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (isEditing) {
+                        closeEdit();
+                      } else {
+                        openEdit();
+                      }
+                    }}
+                    aria-label="Edit task"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       openAddSubtask();
                     }}
+                    aria-label="Add subtask"
                   >
-                    Add subtask
+                    <CornerDownRight className="h-4 w-4" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -484,6 +576,23 @@ const Tasks = () => {
               </div>
 
               <div className="mt-2 flex items-center justify-end gap-1 sm:hidden">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (isEditing) {
+                      closeEdit();
+                    } else {
+                      openEdit();
+                    }
+                  }}
+                  aria-label="Edit task"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -517,16 +626,16 @@ const Tasks = () => {
 
         {(hasSubtasks && isExpanded) || isAddingSubtask ? (
           <div className="flex flex-col border-l ml-5 border-border/50 pl-2">
-            {hasSubtasks && isExpanded && (
+            {hasSubtasks && isExpanded ? (
               <SortableContext items={task.subtasks!.map((t) => t.id)} strategy={verticalListSortingStrategy}>
                 {task.subtasks!.map((subtask) => (
                   <TaskItem key={subtask.id} task={subtask} level={level + 1} />
                 ))}
               </SortableContext>
-            )}
+            ) : null}
 
-            {isAddingSubtask && (
-              <div className="mb-2">
+            {isAddingSubtask ? (
+              <div className="mb-2 mt-2">
                 <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
@@ -539,7 +648,11 @@ const Tasks = () => {
                       }
                       placeholder="Subtask title..."
                       className="h-10 text-base sm:h-8 sm:text-sm"
-                      onKeyDown={(e) => e.key === "Enter" && handleAddSubtask()}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleAddSubtask();
+                        if (e.key === "Escape") closeAddSubtask();
+                      }}
+                      autoFocus
                     />
                     <div className="flex gap-2 sm:justify-end">
                       <Button size="sm" onClick={handleAddSubtask} className="w-full sm:w-auto">
@@ -557,7 +670,7 @@ const Tasks = () => {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -566,7 +679,7 @@ const Tasks = () => {
 
   const processedTasks = useMemo(() => {
     // 1. Filter
-    let filtered = tasks.filter(t => {
+    let filtered = tasks.filter((t) => {
       const matchSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase());
       const matchCategory = filterCategory === "all" || t.category === filterCategory;
       const matchPriority = filterPriority === "all" || t.priority === filterPriority;

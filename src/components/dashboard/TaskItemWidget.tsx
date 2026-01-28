@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { Check, Clock, ChevronRight, ChevronDown, CornerDownRight, Trash2, MoreHorizontal } from "lucide-react";
+import { Check, Clock, ChevronRight, ChevronDown, CornerDownRight, Trash2, MoreHorizontal, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ interface TaskItemProps {
   onToggleExpand: (taskId: string) => void;
   onToggleTask: (task: Task) => void;
   onAddSubtask: (parentId: string, title: string) => Promise<void>;
+  onEditTaskTitle: (taskId: string, title: string) => Promise<void>;
   onDeleteTask: (taskId: string) => void;
 }
 
@@ -38,12 +39,15 @@ export const TaskItem = ({
   onToggleExpand,
   onToggleTask,
   onAddSubtask,
+  onEditTaskTitle,
   onDeleteTask
 }: TaskItemProps) => {
   const hasSubtasks = task.subtasks && task.subtasks.length > 0;
   const isExpanded = expandedTasks.has(task.id);
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
   const [subtaskTitle, setSubtaskTitle] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
 
   const openAddSubtask = () => {
     setIsAddingSubtask(true);
@@ -58,6 +62,23 @@ export const TaskItem = ({
     await onAddSubtask(task.id, subtaskTitle);
     setSubtaskTitle("");
     setIsAddingSubtask(false);
+  };
+
+  const openEdit = () => {
+    setIsEditing(true);
+    setEditTitle(task.title ?? "");
+  };
+
+  const closeEdit = () => {
+    setIsEditing(false);
+    setEditTitle("");
+  };
+
+  const handleSaveEdit = async () => {
+    const nextTitle = editTitle.trim();
+    if (!nextTitle) return;
+    await onEditTaskTitle(task.id, nextTitle);
+    closeEdit();
   };
 
   return (
@@ -98,13 +119,39 @@ export const TaskItem = ({
           {task.completed && <Check className="h-3 w-3" />}
         </button>
         
-        <div className="flex-1 min-w-0 pt-0.5" onClick={() => onToggleTask(task)}>
-          <p className={cn(
-            "font-medium text-sm text-foreground truncate transition-all",
-            task.completed && "line-through text-muted-foreground"
-          )}>
-            {task.title}
-          </p>
+        <div className="flex-1 min-w-0 pt-0.5" onClick={() => !isEditing && onToggleTask(task)}>
+          {isEditing ? (
+            <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className="h-9"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveEdit();
+                  if (e.key === "Escape") closeEdit();
+                }}
+                autoFocus
+                aria-label="Edit task title"
+              />
+              <div className="flex gap-2">
+                <Button size="sm" className="h-8" onClick={(e) => { e.stopPropagation(); handleSaveEdit(); }}>
+                  Save
+                </Button>
+                <Button size="sm" variant="outline" className="h-8" onClick={(e) => { e.stopPropagation(); closeEdit(); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p
+              className={cn(
+                "font-medium text-sm text-foreground truncate transition-all",
+                task.completed && "line-through text-muted-foreground",
+              )}
+            >
+              {task.title}
+            </p>
+          )}
           <div className="flex items-center gap-2 mt-0.5">
             <span className={cn(
               "text-[10px] px-1.5 py-0.5 rounded-full border",
@@ -141,6 +188,19 @@ export const TaskItem = ({
                 Add Subtask
               </DropdownMenuItem>
               <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isEditing) {
+                    closeEdit();
+                  } else {
+                    openEdit();
+                  }
+                }}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit Task
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={(e) => { e.stopPropagation(); onDeleteTask(task.id); }}
               >
@@ -166,6 +226,7 @@ export const TaskItem = ({
                   onToggleExpand={onToggleExpand}
                   onToggleTask={onToggleTask}
                   onAddSubtask={onAddSubtask}
+                  onEditTaskTitle={onEditTaskTitle}
                   onDeleteTask={onDeleteTask}
                 />
               ))}

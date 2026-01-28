@@ -25,14 +25,14 @@ export type GoogleCalendarQueryOptions = {
 };
 
 export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
-  const { accessToken } = useAuth();
+  const { user, disconnectGoogleCalendar } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchEvents = async () => {
-      if (!accessToken) {
+      if (!user) {
         setEvents([]);
         return;
       }
@@ -48,16 +48,23 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
         if (options.timeMax) params.set("timeMax", options.timeMax);
         params.set("maxResults", String(options.maxResults ?? 10));
 
+        const idToken = await user.getIdToken();
+        const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+
         const response = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
+          `${backendUrl}/api/calendar/events?${params.toString()}`,
           {
             headers: {
-              Authorization: `Bearer ${accessToken}`,
+              Authorization: `Bearer ${idToken}`,
             },
           }
         );
 
         if (!response.ok) {
+          if (response.status === 401) {
+            disconnectGoogleCalendar();
+            throw new Error("Google Calendar not connected");
+          }
           throw new Error("Failed to fetch calendar events");
         }
 
@@ -72,7 +79,7 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
     };
 
     fetchEvents();
-  }, [accessToken, options.timeMin, options.timeMax, options.maxResults]);
+  }, [user, options.timeMin, options.timeMax, options.maxResults]);
 
   return { events, loading, error };
 }

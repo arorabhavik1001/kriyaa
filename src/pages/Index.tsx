@@ -97,7 +97,7 @@ function SortableWidget({
 }
 
 const Index = () => {
-  const { user, accessToken } = useAuth();
+  const { user, calendarConnected } = useAuth();
   const isMobile = useIsMobile();
   const [stats, setStats] = useState({
     openTasks: 0,
@@ -118,10 +118,10 @@ const Index = () => {
     loading: todaysEventsLoading,
   } = useGoogleCalendar(todayQuery);
 
-  const eventsScheduledCount = accessToken ? todaysEvents.length : 0;
+  const eventsScheduledCount = calendarConnected ? todaysEvents.length : 0;
 
   const nextEventSubtitle = useMemo(() => {
-    if (!accessToken) return "Connect Google Calendar";
+    if (!calendarConnected) return "Connect Google Calendar";
     if (todaysEventsLoading) return "Loading…";
 
     const now = new Date();
@@ -142,7 +142,7 @@ const Index = () => {
 
     const mins = Math.max(0, differenceInMinutes(upcoming[0].start, now));
     return mins <= 0 ? "Starting now" : `Next in ${mins} min`;
-  }, [accessToken, todaysEvents, todaysEventsLoading]);
+  }, [calendarConnected, todaysEvents, todaysEventsLoading]);
 
   const [customizeMode, setCustomizeMode] = useState(false);
   const [layout, setLayout] = useState(() => DEFAULT_LAYOUT);
