@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { User, signOut, onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
@@ -21,6 +21,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   );
   const [loading, setLoading] = useState(true);
 
+  const calendarRefreshTimerRef = useRef<number | null>(null);
+
+  const clearCalendarRefreshTimer = () => {
+    if (calendarRefreshTimerRef.current != null) {
+      window.clearTimeout(calendarRefreshTimerRef.current);
+      calendarRefreshTimerRef.current = null;
+    }
+  };
+
   // Warm up Render backend (helps reduce cold-start latency).
   useEffect(() => {
     const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
@@ -28,6 +37,112 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       // Ignore warmup failures; app will still function if backend is down.
     });
   }, []);
+
+  // Proactively mint/refresh Google access token ~2 minutes before expiry.
+  // This avoids adding latency during normal calendar fetches.
+  useEffect(() => {
+    const REFRESH_SKEW_MS = 2 * 60 * 1000;
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
+
+    // Shared cache used by useGoogleCalendar (in-memory only).
+    const accessTokenCache: Map<string, { token: string; expiryDate?: number | null }> =
+      (globalThis as any).__kriyaaAccessTokenCache ||
+      ((globalThis as any).__kriyaaAccessTokenCache = new Map());
+
+    // Deduplicate concurrent mint requests across the whole app.
+    const inFlight: Map<string, Promise<{ token: string; expiresAt: number | null } | null>> =
+      (globalThis as any).__kriyaaAccessTokenInFlight ||
+      ((globalThis as any).__kriyaaAccessTokenInFlight = new Map());
+
+    let cancelled = false;
+
+    const scheduleNext = (currentUser: User, expiresAt: number) => {
+      clearCalendarRefreshTimer();
+      const delay = Math.max(0, expiresAt - Date.now() - REFRESH_SKEW_MS);
+      calendarRefreshTimerRef.current = window.setTimeout(() => {
+        void mintAndSchedule(currentUser);
+      }, delay);
+    };
+
+    const mintAndSchedule = async (currentUser: User) => {
+      if (cancelled) return;
+
+      const existing = inFlight.get(currentUser.uid);
+      const promise =
+        existing ||
+        (async () => {
+          try {
+            const idToken = await currentUser.getIdToken();
+            const resp = await fetch(`${backendUrl}/api/calendar/access-token`, {
+              headers: {
+                Authorization: `Bearer ${idToken}`,
+              },
+            });
+
+            if (!resp.ok) {
+              // 401 => not connected. Other failures => backend down.
+              if (resp.status === 401) {
+                setCalendarConnected(false);
+                localStorage.removeItem("google_calendar_connected");
+              }
+              return null;
+            }
+
+            const data = (await resp.json()) as {
+              accessToken?: string;
+              expiresAt?: number | null;
+              expiryDate?: number | null;
+            };
+            const accessToken = data.accessToken;
+            const expiresAt =
+              (typeof data.expiresAt === "number" ? data.expiresAt : null) ??
+              (typeof data.expiryDate === "number" ? data.expiryDate : null);
+
+            if (!accessToken) return null;
+            return { token: accessToken, expiresAt };
+          } catch {
+            return null;
+          }
+        })();
+
+      if (!existing) {
+        inFlight.set(
+          currentUser.uid,
+          promise.finally(() => {
+            inFlight.delete(currentUser.uid);
+          }),
+        );
+      }
+
+      const minted = await (existing || inFlight.get(currentUser.uid)!);
+      if (!minted) {
+        clearCalendarRefreshTimer();
+        return;
+      }
+
+      // Mark as connected if mint succeeded.
+      setCalendarConnected(true);
+      localStorage.setItem("google_calendar_connected", "true");
+
+      accessTokenCache.set(currentUser.uid, { token: minted.token, expiryDate: minted.expiresAt });
+      if (typeof minted.expiresAt === "number") scheduleNext(currentUser, minted.expiresAt);
+      return;
+    };
+
+    if (!user) {
+      clearCalendarRefreshTimer();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void mintAndSchedule(user);
+
+    return () => {
+      cancelled = true;
+      clearCalendarRefreshTimer();
+    };
+  }, [user]);
 
   const refreshCalendarStatus = async (currentUser: User) => {
     try {
@@ -62,9 +177,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!currentUser) {
         setCalendarConnected(false);
         localStorage.removeItem("google_calendar_connected");
-      } else {
-        // After login (and after OAuth redirect back), confirm connection state from backend.
-        void refreshCalendarStatus(currentUser);
       }
       setLoading(false);
     });
@@ -87,6 +199,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const disconnectGoogleCalendar = () => {
     setCalendarConnected(false);
     localStorage.removeItem("google_calendar_connected");
+
+    // Clear any cached tokens/timers so we stop calling Google.
+    clearCalendarRefreshTimer();
+    const uid = auth.currentUser?.uid;
+    const accessTokenCache: Map<string, { token: string; expiryDate?: number | null }> =
+      (globalThis as any).__kriyaaAccessTokenCache || new Map();
+    const inFlight: Map<string, Promise<any>> = (globalThis as any).__kriyaaAccessTokenInFlight || new Map();
+    if (uid) {
+      accessTokenCache.delete(uid);
+      inFlight.delete(uid);
+    }
   };
 
   const connectGoogleCalendar = async () => {
@@ -124,6 +247,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       await signOut(auth);
       disconnectGoogleCalendar();
+      clearCalendarRefreshTimer();
     } catch (error) {
       console.error("Error signing out", error);
     }

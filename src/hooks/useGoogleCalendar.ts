@@ -40,6 +40,13 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
   const accessTokenCache = (globalThis as any).__kriyaaAccessTokenCache ||
     ((globalThis as any).__kriyaaAccessTokenCache = new Map<string, { token: string; expiryDate?: number | null }>());
 
+  // Deduplicate concurrent mint requests across the whole app.
+  const inFlight: Map<string, Promise<{ token: string; expiresAt: number | null } | null>> =
+    (globalThis as any).__kriyaaAccessTokenInFlight ||
+    ((globalThis as any).__kriyaaAccessTokenInFlight = new Map());
+
+  const REFRESH_SKEW_MS = 2 * 60 * 1000;
+
   useEffect(() => {
     const abort = new AbortController();
 
@@ -64,21 +71,46 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
         const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
 
         const mintAccessToken = async () => {
-          const resp = await fetch(`${backendUrl}/api/calendar/access-token`, {
-            signal: abort.signal,
-            headers: { Authorization: `Bearer ${idToken}` },
-          });
-          if (!resp.ok) {
-            if (resp.status === 401) {
-              disconnectGoogleCalendar();
-              throw new Error("Google Calendar not connected");
-            }
-            throw new Error("Failed to mint access token");
+          const existing = inFlight.get(user.uid);
+          const promise =
+            existing ||
+            (async () => {
+              const resp = await fetch(`${backendUrl}/api/calendar/access-token`, {
+                signal: abort.signal,
+                headers: { Authorization: `Bearer ${idToken}` },
+              });
+              if (!resp.ok) {
+                if (resp.status === 401) {
+                  disconnectGoogleCalendar();
+                  throw new Error("Google Calendar not connected");
+                }
+                throw new Error("Failed to mint access token");
+              }
+              const data = (await resp.json()) as {
+                accessToken?: string;
+                expiresAt?: number | null;
+                expiryDate?: number | null;
+              };
+              if (!data.accessToken) throw new Error("Missing access token");
+              const expiresAt =
+                (typeof data.expiresAt === "number" ? data.expiresAt : null) ??
+                (typeof data.expiryDate === "number" ? data.expiryDate : null);
+              return { token: data.accessToken, expiresAt };
+            })();
+
+          if (!existing) {
+            inFlight.set(
+              user.uid,
+              promise.finally(() => {
+                inFlight.delete(user.uid);
+              }),
+            );
           }
-          const data = (await resp.json()) as { accessToken?: string; expiryDate?: number | null };
-          if (!data.accessToken) throw new Error("Missing access token");
-          accessTokenCache.set(user.uid, { token: data.accessToken, expiryDate: data.expiryDate });
-          return data.accessToken;
+
+          const minted = await (existing || inFlight.get(user.uid)!);
+          if (!minted?.token) throw new Error("Missing access token");
+          accessTokenCache.set(user.uid, { token: minted.token, expiryDate: minted.expiresAt });
+          return minted.token;
         };
 
         const fetchDirectFromGoogle = async (accessToken: string) => {
@@ -119,7 +151,7 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
         const cached = accessTokenCache.get(user.uid);
         const now = Date.now();
         const expiresAt = typeof cached?.expiryDate === "number" ? cached.expiryDate : null;
-        const isFresh = !!cached?.token && (expiresAt === null || now < expiresAt - 60_000);
+        const isFresh = !!cached?.token && (expiresAt === null || now < expiresAt - REFRESH_SKEW_MS);
 
         let token = isFresh ? cached!.token : await mintAccessToken();
 

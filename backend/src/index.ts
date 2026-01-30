@@ -330,10 +330,13 @@ app.get("/api/calendar/access-token", async (req, res) => {
     const accessToken = typeof tokenResp === "string" ? tokenResp : tokenResp?.token;
     const expiryDate = oauth2.credentials.expiry_date;
 
+    const expiresAt = typeof expiryDate === "number" ? expiryDate : null;
+
     if (!accessToken) return res.status(500).json({ error: "Failed to mint access token" });
 
     log(req, "calendar: minted access token", { uid, hasExpiry: !!expiryDate });
-    return res.json({ accessToken, expiryDate: expiryDate ?? null });
+    // Return both keys for compatibility.
+    return res.json({ accessToken, expiresAt, expiryDate: expiresAt });
   } catch (e: any) {
     console.error(e);
     const message = typeof e?.message === "string" ? e.message : "Failed to mint access token";
