@@ -393,6 +393,13 @@ export default function Schedule() {
     return map;
   }, [normalizedEvents, weekDays]);
 
+  const dayAllDay = useMemo(() => dayEvents.filter((e) => isAllDayEvent(e)), [dayEvents]);
+  const dayTimed = useMemo(() => dayEvents.filter((e) => !isAllDayEvent(e)), [dayEvents]);
+  const dayPositioned = useMemo(
+    () => positionEventsForDayTimeline(dayTimed as CalendarEvent[], activeDate),
+    [dayTimed, activeDate],
+  );
+
   return (
     <DashboardLayout>
       <div className="animate-fade-in max-w-6xl mx-auto">
@@ -458,7 +465,104 @@ export default function Schedule() {
           </div>
         </div>
         {/* ...existing code... */}
-        <Tabs>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm font-semibold text-foreground">
+            {formatRangeLabel(view, activeDate)}
+          </div>
+          <Tabs value={view} onValueChange={(v) => setView(v as ScheduleView)}>
+            <TabsList className="rounded-full border border-border/40 bg-background">
+              <TabsTrigger value="day" className="rounded-full">Day</TabsTrigger>
+              <TabsTrigger value="week" className="rounded-full">Week</TabsTrigger>
+              <TabsTrigger value="month" className="rounded-full">Month</TabsTrigger>
+              <TabsTrigger value="year" className="rounded-full">Year</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <Tabs value={view} onValueChange={(v) => setView(v as ScheduleView)}>
+          <TabsContent value="day">
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="border-b border-border px-4 py-3">
+                <p className="text-sm font-semibold text-foreground">Day</p>
+                <p className="text-xs text-muted-foreground">Timeline + agenda</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[1fr_360px]">
+                <div className="rounded-xl border border-border bg-background overflow-hidden">
+                  {dayAllDay.length > 0 && (
+                    <div className="border-b border-border px-3 py-3">
+                      <div className="mb-2 text-[11px] font-semibold text-muted-foreground">All-day</div>
+                      <div className="flex flex-wrap gap-2">
+                        {dayAllDay.map((e) => (
+                          <a
+                            key={e.id}
+                            href={e.htmlLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-md border border-primary/25 bg-primary/15 px-2 py-1 text-[11px] text-foreground hover:bg-primary/20"
+                            title={e.summary || "No Title"}
+                          >
+                            {e.summary || "No Title"}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="relative h-[720px] overflow-auto">
+                    <div className="relative min-w-[520px]">
+                      <div className="grid grid-cols-[64px_1fr]">
+                        <div className="relative border-r border-border bg-muted/5" style={{ height: HOUR_HEIGHT_PX * 24 }}>
+                          {Array.from({ length: 24 }, (_, h) => (
+                            <div
+                              key={h}
+                              className="absolute left-0 right-0 pr-2 text-right text-[10px] text-muted-foreground"
+                              style={{ top: h * HOUR_HEIGHT_PX - 6 }}
+                            >
+                              {h === 0 ? "12a" : h < 12 ? `${h}a` : h === 12 ? "12p" : `${h - 12}p`}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="relative" style={{ height: HOUR_HEIGHT_PX * 24 }}>
+                          {Array.from({ length: 24 }, (_, h) => (
+                            <div
+                              key={h}
+                              className="absolute left-0 right-0 border-t border-border/60"
+                              style={{ top: h * HOUR_HEIGHT_PX }}
+                            />
+                          ))}
+
+                          {dayPositioned.map((p) => (
+                            <TimelineEventCard key={p.event.id} positioned={p} />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border bg-background overflow-hidden">
+                  <div className="border-b border-border px-4 py-3">
+                    <p className="text-sm font-semibold text-foreground">Agenda</p>
+                    <p className="text-xs text-muted-foreground">{format(activeDate, "PPP")}</p>
+                  </div>
+                  <ScrollArea className="h-[720px] p-4">
+                    {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
+                    {!loading && dayEvents.length === 0 && (
+                      <div className="text-sm text-muted-foreground">No events for this day.</div>
+                    )}
+                    <div className="space-y-3">
+                      {dayEvents.map((e) => (
+                        <EventRow key={e.id} event={e} />
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
           <TabsContent value="week">
             <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="border-b border-border px-4 py-3">

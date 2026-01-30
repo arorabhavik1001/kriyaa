@@ -30,7 +30,19 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Default to direct Google fetch for lower latency.
+  // Set VITE_CALENDAR_FETCH_MODE=proxy to force backend proxy.
+  const mode = String(import.meta.env.VITE_CALENDAR_FETCH_MODE || "direct");
+  const directMode = mode !== "proxy";
+
+  // In-memory per-session cache for minted access tokens (never persisted).
+  // Keyed by uid to avoid cross-user reuse.
+  const accessTokenCache = (globalThis as any).__kriyaaAccessTokenCache ||
+    ((globalThis as any).__kriyaaAccessTokenCache = new Map<string, { token: string; expiryDate?: number | null }>());
+
   useEffect(() => {
+    const abort = new AbortController();
+
     const fetchEvents = async () => {
       if (!user) {
         setEvents([]);
@@ -51,24 +63,80 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
         const idToken = await user.getIdToken();
         const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
 
-        const response = await fetch(
-          `${backendUrl}/api/calendar/events?${params.toString()}`,
-          {
+        const mintAccessToken = async () => {
+          const resp = await fetch(`${backendUrl}/api/calendar/access-token`, {
+            signal: abort.signal,
+            headers: { Authorization: `Bearer ${idToken}` },
+          });
+          if (!resp.ok) {
+            if (resp.status === 401) {
+              disconnectGoogleCalendar();
+              throw new Error("Google Calendar not connected");
+            }
+            throw new Error("Failed to mint access token");
+          }
+          const data = (await resp.json()) as { accessToken?: string; expiryDate?: number | null };
+          if (!data.accessToken) throw new Error("Missing access token");
+          accessTokenCache.set(user.uid, { token: data.accessToken, expiryDate: data.expiryDate });
+          return data.accessToken;
+        };
+
+        const fetchDirectFromGoogle = async (accessToken: string) => {
+          const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`;
+          const resp = await fetch(url, {
+            signal: abort.signal,
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          return resp;
+        };
+
+        if (!directMode) {
+          // Legacy mode: backend proxy
+          const response = await fetch(`${backendUrl}/api/calendar/events?${params.toString()}`, {
+            signal: abort.signal,
             headers: {
               Authorization: `Bearer ${idToken}`,
             },
-          }
-        );
+          });
 
-        if (!response.ok) {
-          if (response.status === 401) {
-            disconnectGoogleCalendar();
-            throw new Error("Google Calendar not connected");
+          if (!response.ok) {
+            if (response.status === 401) {
+              disconnectGoogleCalendar();
+              throw new Error("Google Calendar not connected");
+            }
+            throw new Error("Failed to fetch calendar events");
           }
+
+          const data = await response.json();
+          setEvents(data.items || []);
+          return;
+        }
+
+        // Direct mode: use access token from backend, call Google API directly.
+        // If token is invalid/expired, mint a new one and retry once.
+        const cached = accessTokenCache.get(user.uid);
+        const now = Date.now();
+        const expiresAt = typeof cached?.expiryDate === "number" ? cached.expiryDate : null;
+        const isFresh = !!cached?.token && (expiresAt === null || now < expiresAt - 60_000);
+
+        let token = isFresh ? cached!.token : await mintAccessToken();
+
+        let resp = await fetchDirectFromGoogle(token);
+
+        // If token expired/revoked, mint and retry once.
+        if (resp.status === 401 || resp.status === 403) {
+          accessTokenCache.delete(user.uid);
+          token = await mintAccessToken();
+          resp = await fetchDirectFromGoogle(token);
+        }
+
+        if (!resp.ok) {
           throw new Error("Failed to fetch calendar events");
         }
 
-        const data = await response.json();
+        const data = await resp.json();
         setEvents(data.items || []);
       } catch (err) {
         console.error(err);
@@ -79,7 +147,8 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
     };
 
     fetchEvents();
-  }, [user, options.timeMin, options.timeMax, options.maxResults]);
+    return () => abort.abort();
+  }, [user, options.timeMin, options.timeMax, options.maxResults, disconnectGoogleCalendar, directMode]);
 
   return { events, loading, error };
 }

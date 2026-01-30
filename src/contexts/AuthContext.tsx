@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { User, signInWithPopup, signOut, onAuthStateChanged, GoogleAuthProvider } from "firebase/auth";
-import { auth, googleProvider } from "@/lib/firebase";
+import { User, signOut, onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 
 interface AuthContextType {
   user: User | null;
@@ -21,9 +21,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   );
   const [loading, setLoading] = useState(true);
 
+  // Warm up Render backend (helps reduce cold-start latency).
+  useEffect(() => {
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
+    fetch(`${backendUrl}/health`, { cache: "no-store" }).catch(() => {
+      // Ignore warmup failures; app will still function if backend is down.
+    });
+  }, []);
+
   const refreshCalendarStatus = async (currentUser: User) => {
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
+      // const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
       const idToken = await currentUser.getIdToken();
       const resp = await fetch(`${backendUrl}/api/calendar/status`, {
         headers: {
@@ -65,6 +74,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signInWithGoogle = async () => {
     try {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
+      // const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
       const resp = await fetch(`${backendUrl}/auth/login`);
       if (!resp.ok) throw new Error("Failed to get login url");
       const { url } = await resp.json();
@@ -86,6 +96,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       const idToken = await currentUser.getIdToken();
       const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
+      // const backendUrl = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
 
       const resp = await fetch(`${backendUrl}/auth/google/url`, {
         method: "POST",

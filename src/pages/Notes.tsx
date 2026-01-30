@@ -10,8 +10,88 @@ import { db } from "@/lib/firebase";
 import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, deleteDoc, orderBy } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCategories } from "@/hooks/useCategories";
-import ReactQuill from 'react-quill';
+import ReactQuill, { Quill } from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
+
+const QUILL_SIZES = ["small", "normal", "large", "huge"] as const;
+
+const QUILL_FONTS = [
+  "sans",
+  "inter",
+  "arial",
+  "verdana",
+  "georgia",
+  "times",
+  "mono",
+] as const;
+
+// Register a restricted font whitelist (system fonts only).
+const QuillFont = Quill.import("formats/font");
+QuillFont.whitelist = [...QUILL_FONTS];
+Quill.register(QuillFont, true);
+
+const quillModules: ReactQuill.ReactQuillProps["modules"] = {
+  toolbar: [
+    [{ font: [...QUILL_FONTS] }],
+    [{ header: [1, 2, 3, false] }],
+    [{ size: ["small", false, "large", "huge"] }],
+    ["bold", "italic", "underline", "strike"],
+    [{ color: [] }],
+    [{ list: "ordered" }, { list: "bullet" }],
+    ["link"],
+    ["clean"],
+  ],
+  keyboard: {
+    bindings: {
+      increaseFontSize: {
+        key: 190, // '>' is Shift + '.'
+        shortKey: true,
+        shiftKey: true,
+        handler: function () {
+          const range = this.quill.getSelection();
+          if (!range) return true;
+          const fmt = this.quill.getFormat(range);
+          const current = (fmt.size as string | undefined) ?? "normal";
+          const idx = QUILL_SIZES.indexOf(current as any);
+          const nextIdx = Math.min(QUILL_SIZES.length - 1, idx === -1 ? 1 : idx + 1);
+          const next = QUILL_SIZES[nextIdx];
+          this.quill.format("size", next === "normal" ? false : next);
+          return false;
+        },
+      },
+      decreaseFontSize: {
+        key: 188, // '<' is Shift + ','
+        shortKey: true,
+        shiftKey: true,
+        handler: function () {
+          const range = this.quill.getSelection();
+          if (!range) return true;
+          const fmt = this.quill.getFormat(range);
+          const current = (fmt.size as string | undefined) ?? "normal";
+          const idx = QUILL_SIZES.indexOf(current as any);
+          const nextIdx = Math.max(0, idx === -1 ? 1 : idx - 1);
+          const next = QUILL_SIZES[nextIdx];
+          this.quill.format("size", next === "normal" ? false : next);
+          return false;
+        },
+      },
+    },
+  },
+};
+
+const quillFormats: ReactQuill.ReactQuillProps["formats"] = [
+  "header",
+  "font",
+  "size",
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "color",
+  "list",
+  "bullet",
+  "link",
+];
 
 interface Note {
   id: string;
@@ -227,6 +307,8 @@ const Notes = () => {
                     theme="snow" 
                     value={selectedNote.content} 
                     onChange={(content) => updateNote(selectedNote.id, { content })}
+                    modules={quillModules}
+                    formats={quillFormats}
                     className="h-full"
                     placeholder="Start writing your note..."
                   />
@@ -349,6 +431,8 @@ const Notes = () => {
                   theme="snow"
                   value={selectedNote?.content || ""}
                   onChange={(content) => selectedNote && updateNote(selectedNote.id, { content })}
+                  modules={quillModules}
+                  formats={quillFormats}
                   className="h-full"
                 />
               </div>
