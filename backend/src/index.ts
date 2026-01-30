@@ -16,6 +16,11 @@ const corsOrigin = process.env.CORS_ORIGIN || process.env.FRONTEND_URL || "http:
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 
+type CacheEntry<T> = { value: T; ts: number };
+
+const EVENTS_CACHE_TTL_MS = Number(process.env.EVENTS_CACHE_TTL_MS || 20_000);
+const eventsCache = new Map<string, CacheEntry<any>>();
+
 app.get("/debug/config", (_req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || "";
   const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI || "";
@@ -75,6 +80,13 @@ function requireAuthHeader(req: express.Request) {
   const m = h.match(/^Bearer\s+(.+)$/i);
   if (!m) return null;
   return m[1];
+}
+
+function cacheKeyForEvents(uid: string, req: express.Request) {
+  const timeMin = typeof req.query.timeMin === "string" ? req.query.timeMin : "";
+  const timeMax = typeof req.query.timeMax === "string" ? req.query.timeMax : "";
+  const maxResults = typeof req.query.maxResults === "string" ? req.query.maxResults : "";
+  return `${uid}|${timeMin}|${timeMax}|${maxResults}`;
 }
 
 // Create an OAuth URL for the currently logged-in Firebase user
@@ -252,6 +264,15 @@ app.get("/api/calendar/events", async (req, res) => {
       return res.status(401).json({ error: "Google Calendar not connected" });
     }
 
+    // Short TTL cache to avoid repeated round-trips when UI triggers multiple requests.
+    const cacheKey = cacheKeyForEvents(uid, req);
+    const cached = eventsCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < EVENTS_CACHE_TTL_MS) {
+      res.setHeader("X-Cache", "HIT");
+      log(req, "calendar: events cache hit", { uid });
+      return res.json(cached.value);
+    }
+
     const oauth2 = makeOAuthClient();
     oauth2.setCredentials({ refresh_token: refreshToken });
 
@@ -277,11 +298,45 @@ app.get("/api/calendar/events", async (req, res) => {
     });
 
     log(req, "calendar: events served", { uid, count: (resp.data.items ?? []).length });
-    return res.json({ items: resp.data.items ?? [] });
+    const payload = { items: resp.data.items ?? [] };
+    res.setHeader("X-Cache", "MISS");
+    eventsCache.set(cacheKey, { value: payload, ts: Date.now() });
+    return res.json(payload);
   } catch (e: any) {
     console.error(e);
     // If refresh token was revoked, surface as disconnected
     const message = typeof e?.message === "string" ? e.message : "Calendar request failed";
+    return res.status(500).json({ error: message });
+  }
+});
+
+// Mint a short-lived Google access token for the user (from stored refresh token)
+// Use-case: frontend can call Google APIs directly for lower latency.
+app.get("/api/calendar/access-token", async (req, res) => {
+  try {
+    const idToken = requireAuthHeader(req);
+    if (!idToken) return res.status(401).json({ error: "Missing Authorization Bearer token" });
+
+    const decoded = await verifyFirebaseIdToken(idToken);
+    const uid = decoded.uid;
+
+    const refreshToken = await getRefreshToken(uid);
+    if (!refreshToken) return res.status(401).json({ error: "Google Calendar not connected" });
+
+    const oauth2 = makeOAuthClient();
+    oauth2.setCredentials({ refresh_token: refreshToken });
+
+    const tokenResp = await oauth2.getAccessToken();
+    const accessToken = typeof tokenResp === "string" ? tokenResp : tokenResp?.token;
+    const expiryDate = oauth2.credentials.expiry_date;
+
+    if (!accessToken) return res.status(500).json({ error: "Failed to mint access token" });
+
+    log(req, "calendar: minted access token", { uid, hasExpiry: !!expiryDate });
+    return res.json({ accessToken, expiryDate: expiryDate ?? null });
+  } catch (e: any) {
+    console.error(e);
+    const message = typeof e?.message === "string" ? e.message : "Failed to mint access token";
     return res.status(500).json({ error: message });
   }
 });

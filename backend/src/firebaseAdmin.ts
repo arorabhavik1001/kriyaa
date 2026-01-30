@@ -36,7 +36,15 @@ function initFirebaseAdmin() {
   if (b64) {
     let raw = "";
     try {
-      raw = Buffer.from(b64, "base64").toString("utf8");
+      const cleaned = b64
+        .trim()
+        // Some dashboards paste values with surrounding quotes
+        .replace(/^['"]/, "")
+        .replace(/['"]$/, "")
+        // Some dashboards wrap long values with newlines/spaces
+        .replace(/\s+/g, "");
+
+      raw = Buffer.from(cleaned, "base64").toString("utf8");
     } catch (e) {
       throw new Error(
         "Invalid FIREBASE_SERVICE_ACCOUNT_B64: base64 decode failed. Ensure the value is a single-line base64 string.",
