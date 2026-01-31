@@ -47,6 +47,30 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
 
   const REFRESH_SKEW_MS = 2 * 60 * 1000;
 
+  const readStoredToken = (uid: string): { token: string; expiresAt: number | null } | null => {
+    try {
+      const raw = localStorage.getItem(`kriyaa_google_access_token:${uid}`);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { token?: string; expiresAt?: number | null; expiryDate?: number | null };
+      const token = typeof parsed.token === "string" ? parsed.token : null;
+      const expiresAt =
+        (typeof parsed.expiresAt === "number" ? parsed.expiresAt : null) ??
+        (typeof parsed.expiryDate === "number" ? parsed.expiryDate : null);
+      if (!token) return null;
+      return { token, expiresAt };
+    } catch {
+      return null;
+    }
+  };
+
+  const writeStoredToken = (uid: string, token: string, expiresAt: number | null) => {
+    try {
+      localStorage.setItem(`kriyaa_google_access_token:${uid}`, JSON.stringify({ token, expiresAt }));
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     const abort = new AbortController();
 
@@ -71,6 +95,17 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
         const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
 
         const mintAccessToken = async () => {
+          const fromStorage = readStoredToken(user.uid);
+          if (fromStorage?.token) {
+            const now = Date.now();
+            const expiresAt = typeof fromStorage.expiresAt === "number" ? fromStorage.expiresAt : null;
+            const isFresh = expiresAt === null || now < expiresAt - REFRESH_SKEW_MS;
+            if (isFresh) {
+              accessTokenCache.set(user.uid, { token: fromStorage.token, expiryDate: expiresAt });
+              return fromStorage.token;
+            }
+          }
+
           const existing = inFlight.get(user.uid);
           const promise =
             existing ||
@@ -110,6 +145,7 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
           const minted = await (existing || inFlight.get(user.uid)!);
           if (!minted?.token) throw new Error("Missing access token");
           accessTokenCache.set(user.uid, { token: minted.token, expiryDate: minted.expiresAt });
+          writeStoredToken(user.uid, minted.token, minted.expiresAt);
           return minted.token;
         };
 

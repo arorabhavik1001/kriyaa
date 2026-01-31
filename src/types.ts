@@ -4,6 +4,7 @@ export interface Task {
   priority: "high" | "medium" | "low";
   createdAt?: any; // Firestore timestamp or Date
   dueDate?: any; // Firestore timestamp or Date
+  deletedAt?: any; // Firestore timestamp or Date (soft delete)
   completed: boolean;
   category: string;
   userId: string;

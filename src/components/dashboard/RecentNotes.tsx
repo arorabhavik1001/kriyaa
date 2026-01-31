@@ -1,7 +1,7 @@
 import { FileText, Plus } from "lucide-react";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, query, where, onSnapshot } from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -11,6 +11,20 @@ interface Note {
   title: string;
   content: string;
   updatedAt: any;
+  deletedAt?: any;
+}
+
+function getNotePreview(html: string): string {
+  if (!html) return "";
+  if (/<img\b/i.test(html)) return "(Image)";
+
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function RecentNotes() {
@@ -20,9 +34,15 @@ export function RecentNotes() {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, "notes"), where("userId", "==", user.uid));
+    const q = query(
+      collection(db, "notes"),
+      where("userId", "==", user.uid),
+      orderBy("updatedAt", "desc")
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Note));
+      const notesData = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() } as Note))
+        .filter((n) => !n.deletedAt);
       setRecentNotes(notesData.slice(0, 3));
     });
     return () => unsubscribe();
@@ -60,8 +80,7 @@ export function RecentNotes() {
                 <p className="font-medium text-foreground group-hover:text-primary transition-colors">
                   {note.title}
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground line-clamp-2" dangerouslySetInnerHTML={{ __html: note.content }}>
-                </p>
+                <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{getNotePreview(note.content)}</p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : new Date(note.updatedAt).toLocaleDateString()}
                 </p>

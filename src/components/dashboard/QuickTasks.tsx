@@ -41,7 +41,9 @@ export function QuickTasks() {
     if (!user) return;
     const q = query(collection(db, "tasks"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tasksData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Task));
+      const tasksData = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() } as Task))
+        .filter((t) => !t.deletedAt);
       setTasks(tasksData);
     });
     return () => unsubscribe();
@@ -207,7 +209,7 @@ export function QuickTasks() {
   const activeRootCount = rootTasksNewestFirst.filter((t) => !t.completed).length;
 
   return (
-    <div className="rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow duration-200">
+    <div className="rounded-xl border border-border bg-card shadow-sm hover:shadow-md transition-shadow duration-200 min-w-0 overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-4 py-4 bg-muted/10 sm:px-6">
         <h3 className="font-semibold text-foreground text-lg">Priority Tasks</h3>
         <div className="flex items-center gap-3">

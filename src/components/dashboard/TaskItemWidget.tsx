@@ -85,7 +85,7 @@ export const TaskItem = ({
     <div className={cn("flex flex-col", level > 0 && "ml-3 sm:ml-4")}>
       <div
         className={cn(
-          "group rounded-lg border-b border-transparent pl-1 pr-2 py-3 sm:px-4 transition-all duration-200 cursor-pointer flex items-start gap-2 sm:gap-3",
+          "group rounded-lg border-b border-transparent pl-1 pr-2 py-3 sm:px-4 transition-all duration-200 cursor-pointer flex items-start gap-2 sm:gap-3 overflow-hidden",
           task.completed && "opacity-60",
           completingTasks.has(task.id) && "opacity-0 translate-x-10 pointer-events-none"
         )}
@@ -119,7 +119,7 @@ export const TaskItem = ({
           {task.completed && <Check className="h-3 w-3" />}
         </button>
         
-        <div className="flex-1 min-w-0 pt-0.5" onClick={() => !isEditing && onToggleTask(task)}>
+        <div className="flex-1 min-w-0 pt-0.5 overflow-hidden" onClick={() => !isEditing && onToggleTask(task)}>
           {isEditing ? (
             <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
               <Input
@@ -145,7 +145,7 @@ export const TaskItem = ({
           ) : (
             <p
               className={cn(
-                "font-medium text-sm text-foreground truncate transition-all",
+                "font-medium text-sm text-foreground whitespace-normal break-all leading-snug transition-all",
                 task.completed && "line-through text-muted-foreground",
               )}
             >

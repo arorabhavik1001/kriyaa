@@ -121,6 +121,39 @@ const prmsSections: PRMSSection[] = [
         color: "bg-blue-500/10 text-blue-600",
       },
     ]
+  },
+  {
+    title: "East Bihar",
+    cards: [
+      {
+        title: "PRMS Purnia",
+        description: "Purnia Preaching Management System",
+        icon: BarChart3,
+        url: "https://prms-purnia.web.app",
+        color: "bg-blue-500/10 text-blue-600",
+      },
+      {
+        title: "PRMS Katihar",
+        description: "Katihar Preaching Management System",
+        icon: BarChart3,
+        url: "https://prms-katihar.web.app",
+        color: "bg-blue-500/10 text-blue-600",
+      },
+      {
+        title: "PRMS Bhagalpur",
+        description: "Bhagalpur Preaching Management System",
+        icon: BarChart3,
+        url: "https://prms-bhagalpur.web.app",
+        color: "bg-blue-500/10 text-blue-600",
+      },
+      {
+        title: "PRMS Banka",
+        description: "Banka Preaching Management System",
+        icon: BarChart3,
+        url: "https://prms-banka.web.app",
+        color: "bg-blue-500/10 text-blue-600",
+      },
+    ]
   }
 ];
 

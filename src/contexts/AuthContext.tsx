@@ -56,6 +56,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     let cancelled = false;
 
+    const storageKey = (uid: string) => `kriyaa_google_access_token:${uid}`;
+
+    const readStoredToken = (uid: string): { token: string; expiresAt: number | null } | null => {
+      try {
+        const raw = localStorage.getItem(storageKey(uid));
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { token?: string; expiresAt?: number | null; expiryDate?: number | null };
+        const token = typeof parsed.token === "string" ? parsed.token : null;
+        const expiresAt =
+          (typeof parsed.expiresAt === "number" ? parsed.expiresAt : null) ??
+          (typeof parsed.expiryDate === "number" ? parsed.expiryDate : null);
+        if (!token) return null;
+        return { token, expiresAt };
+      } catch {
+        return null;
+      }
+    };
+
+    const writeStoredToken = (uid: string, token: string, expiresAt: number | null) => {
+      try {
+        localStorage.setItem(storageKey(uid), JSON.stringify({ token, expiresAt }));
+      } catch {
+        // Ignore storage failures (e.g. privacy mode)
+      }
+    };
+
     const scheduleNext = (currentUser: User, expiresAt: number) => {
       clearCalendarRefreshTimer();
       const delay = Math.max(0, expiresAt - Date.now() - REFRESH_SKEW_MS);
@@ -66,6 +92,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const mintAndSchedule = async (currentUser: User) => {
       if (cancelled) return;
+
+      // If we already have a fresh token in local storage, reuse it
+      // and avoid the backend roundtrip on app reload.
+      const fromStorage = readStoredToken(currentUser.uid);
+      if (fromStorage?.token) {
+        const now = Date.now();
+        const expiresAt = typeof fromStorage.expiresAt === "number" ? fromStorage.expiresAt : null;
+        const isFresh = expiresAt === null || now < expiresAt - REFRESH_SKEW_MS;
+        if (isFresh) {
+          accessTokenCache.set(currentUser.uid, { token: fromStorage.token, expiryDate: expiresAt });
+          if (typeof expiresAt === "number") scheduleNext(currentUser, expiresAt);
+          return;
+        }
+      }
 
       const existing = inFlight.get(currentUser.uid);
       const promise =
@@ -125,11 +165,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       localStorage.setItem("google_calendar_connected", "true");
 
       accessTokenCache.set(currentUser.uid, { token: minted.token, expiryDate: minted.expiresAt });
+      writeStoredToken(currentUser.uid, minted.token, minted.expiresAt);
       if (typeof minted.expiresAt === "number") scheduleNext(currentUser, minted.expiresAt);
       return;
     };
 
-    if (!user) {
+    if (!user || !calendarConnected) {
       clearCalendarRefreshTimer();
       return () => {
         cancelled = true;
@@ -142,7 +183,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       cancelled = true;
       clearCalendarRefreshTimer();
     };
-  }, [user]);
+  }, [user, calendarConnected]);
 
   const refreshCalendarStatus = async (currentUser: User) => {
     try {
@@ -209,6 +250,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (uid) {
       accessTokenCache.delete(uid);
       inFlight.delete(uid);
+      try {
+        localStorage.removeItem(`kriyaa_google_access_token:${uid}`);
+      } catch {
+        // ignore
+      }
     }
   };
 

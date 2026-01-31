@@ -1,17 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, FileText, Search, Trash2, Clock, PanelLeftClose, PanelLeft } from "lucide-react";
+import { Plus, FileText, Search, Trash2, Clock, PanelLeftClose, PanelLeft, RotateCcw, Archive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, deleteDoc, orderBy } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCategories } from "@/hooks/useCategories";
-import ReactQuill, { Quill } from 'react-quill';
+import { toast } from "sonner";
+import ReactQuill from "react-quill";
+import type { ReactQuillProps } from "react-quill";
 import 'react-quill/dist/quill.snow.css';
+import { ImageResize } from "quill-image-resize-module-ts";
+import { ImageDrop } from "quill-image-drop-module";
+
+const Quill = (ReactQuill as any).Quill;
 
 const QUILL_SIZES = ["small", "normal", "large", "huge"] as const;
 
@@ -26,11 +32,20 @@ const QUILL_FONTS = [
 ] as const;
 
 // Register a restricted font whitelist (system fonts only).
-const QuillFont = Quill.import("formats/font");
-QuillFont.whitelist = [...QUILL_FONTS];
-Quill.register(QuillFont, true);
+if (Quill) {
+  const qAny = Quill as any;
+  if (!qAny.__kriyaaQuillModulesRegistered) {
+    qAny.__kriyaaQuillModulesRegistered = true;
+    Quill.register("modules/imageResize", ImageResize);
+    Quill.register("modules/imageDrop", ImageDrop);
+  }
 
-const quillModules: ReactQuill.ReactQuillProps["modules"] = {
+  const QuillFont = Quill.import("formats/font");
+  QuillFont.whitelist = [...QUILL_FONTS];
+  Quill.register(QuillFont, true);
+}
+
+const quillModules: ReactQuillProps["modules"] = {
   toolbar: [
     [{ font: [...QUILL_FONTS] }],
     [{ header: [1, 2, 3, false] }],
@@ -39,8 +54,13 @@ const quillModules: ReactQuill.ReactQuillProps["modules"] = {
     [{ color: [] }],
     [{ list: "ordered" }, { list: "bullet" }],
     ["link"],
+    ["image"],
     ["clean"],
   ],
+  imageResize: {
+    modules: ["Resize", "DisplaySize"],
+  },
+  imageDrop: true,
   keyboard: {
     bindings: {
       increaseFontSize: {
@@ -79,7 +99,7 @@ const quillModules: ReactQuill.ReactQuillProps["modules"] = {
   },
 };
 
-const quillFormats: ReactQuill.ReactQuillProps["formats"] = [
+const quillFormats: NonNullable<ReactQuillProps["formats"]> = [
   "header",
   "font",
   "size",
@@ -91,7 +111,21 @@ const quillFormats: ReactQuill.ReactQuillProps["formats"] = [
   "list",
   "bullet",
   "link",
+  "image",
 ];
+
+function getNotePreview(html: string): string {
+  if (!html) return "";
+  if (/<img\b/i.test(html)) return "(Image)";
+
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 interface Note {
   id: string;
@@ -100,6 +134,7 @@ interface Note {
   updatedAt: any; // Firestore timestamp
   category: string;
   userId: string;
+  deletedAt?: any;
 }
 
 const Notes = () => {
@@ -111,6 +146,15 @@ const Notes = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [showEditorMobile, setShowEditorMobile] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [editorContent, setEditorContent] = useState<string>("");
+  const [showBin, setShowBin] = useState(false);
+
+  // If false, we intentionally avoid auto-selecting a replacement note.
+  // Used to keep the editor closed after deleting a note.
+  const allowAutoSelectRef = useRef(true);
+
+  const contentSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorDirtyRef = useRef(false);
 
   useEffect(() => {
     if (!user) return;
@@ -129,15 +173,46 @@ const Notes = () => {
   // Derived state for the currently selected note
   const selectedNote = notes.find((n) => n.id === selectedNoteId) || null;
 
+  const visibleNotes = notes.filter((n) => (showBin ? !!n.deletedAt : !n.deletedAt));
+
+  // Keep a local (controlled) copy of the editor content.
+  // This prevents rapid Firestore snapshot updates from resetting Quill DOM state mid-interaction (e.g. image resize drag).
+  useEffect(() => {
+    if (!selectedNote) {
+      setEditorContent("");
+      editorDirtyRef.current = false;
+      if (contentSaveTimerRef.current) {
+        clearTimeout(contentSaveTimerRef.current);
+        contentSaveTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (!editorDirtyRef.current) {
+      setEditorContent(selectedNote.content || "");
+    }
+  }, [selectedNoteId, selectedNote?.content]);
+
   // Initial selection logic
   useEffect(() => {
-    if (!selectedNoteId && notes.length > 0) {
-      setSelectedNoteId(notes[0].id);
+    if (visibleNotes.length === 0) {
+      setSelectedNoteId(null);
+      return;
     }
-  }, [notes, selectedNoteId]);
+
+    const selectionIsVisible = selectedNoteId ? visibleNotes.some((n) => n.id === selectedNoteId) : false;
+    if (selectionIsVisible) return;
+
+    if (allowAutoSelectRef.current) {
+      setSelectedNoteId(visibleNotes[0].id);
+    } else {
+      setSelectedNoteId(null);
+    }
+  }, [visibleNotes, selectedNoteId]);
 
   const createNote = async () => {
     if (!user) return;
+    setShowBin(false);
     const defaultCategory = categories[0]?.name || "General";
     try {
       const newNoteRef = await addDoc(collection(db, "notes"), {
@@ -168,21 +243,77 @@ const Notes = () => {
     }
   };
 
+  const scheduleContentSave = useCallback(
+    (id: string, content: string) => {
+      editorDirtyRef.current = true;
+      if (contentSaveTimerRef.current) {
+        clearTimeout(contentSaveTimerRef.current);
+      }
+      contentSaveTimerRef.current = setTimeout(async () => {
+        contentSaveTimerRef.current = null;
+        await updateNote(id, { content });
+        editorDirtyRef.current = false;
+      }, 600);
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (contentSaveTimerRef.current) {
+        clearTimeout(contentSaveTimerRef.current);
+        contentSaveTimerRef.current = null;
+      }
+    };
+  }, []);
+
   const deleteNote = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "notes", id));
-      if (selectedNoteId === id) {
-        setSelectedNoteId(null);
-      }
-      if (isMobile) {
-        setShowEditorMobile(false);
-      }
+      allowAutoSelectRef.current = false;
+      await updateDoc(doc(db, "notes", id), {
+        deletedAt: new Date(),
+      });
+
+      setSelectedNoteId(null);
+      if (isMobile) setShowEditorMobile(false);
+
+      toast("Note deleted", {
+        duration: 3000,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            await restoreNote(id);
+            allowAutoSelectRef.current = true;
+            setShowBin(false);
+            setSelectedNoteId(id);
+            if (isMobile) setShowEditorMobile(true);
+          },
+        },
+      });
     } catch (error) {
       console.error("Error deleting note:", error);
     }
   };
 
-  const filteredNotes = notes.filter(
+  const restoreNote = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "notes", id), { deletedAt: null });
+    } catch (error) {
+      console.error("Error restoring note:", error);
+    }
+  };
+
+  const deleteNoteForever = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "notes", id));
+      if (selectedNoteId === id) setSelectedNoteId(null);
+      if (isMobile) setShowEditorMobile(false);
+    } catch (error) {
+      console.error("Error deleting note forever:", error);
+    }
+  };
+
+  const filteredNotes = visibleNotes.filter(
     (note) =>
       note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       note.content.toLowerCase().includes(searchQuery.toLowerCase())
@@ -202,13 +333,29 @@ const Notes = () => {
           >
             <div className="flex items-center justify-between">
               <h1 className="text-2xl font-semibold text-foreground truncate">Notes</h1>
-              <Button
-                onClick={createNote}
-                size="icon"
-                className="h-9 w-9 rounded-full border border-border/40 shadow-sm hover:shadow-md transition-shadow"
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={showBin ? "outline" : "ghost"}
+                  size="sm"
+                  className="h-9 rounded-full border border-border/40 px-3"
+                  onClick={() => {
+                    allowAutoSelectRef.current = true;
+                    setSelectedNoteId(null);
+                    setShowBin((v) => !v);
+                  }}
+                  title="Bin"
+                >
+                  Bin
+                </Button>
+                <Button
+                  onClick={createNote}
+                  size="icon"
+                  className="h-9 w-9 rounded-full border border-border/40 shadow-sm hover:shadow-md transition-shadow"
+                  title="New note"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -224,6 +371,7 @@ const Notes = () => {
                 <div
                   key={note.id}
                   onClick={() => {
+                    allowAutoSelectRef.current = true;
                     setSelectedNoteId(note.id);
                     setSidebarCollapsed(true);
                   }}
@@ -238,13 +386,40 @@ const Notes = () => {
                     "font-semibold truncate transition-colors",
                     selectedNoteId === note.id ? "text-primary" : "text-foreground"
                   )}>{note.title}</h3>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground" dangerouslySetInnerHTML={{ __html: note.content }}></p>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{getNotePreview(note.content)}</p>
                   <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                     <span>{note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : new Date(note.updatedAt).toLocaleDateString()}</span>
                     <span className="rounded-full bg-secondary px-2 py-0.5 font-medium">
                       {note.category}
                     </span>
                   </div>
+                  {showBin ? (
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          restoreNote(note.id);
+                        }}
+                      >
+                        <RotateCcw className="mr-2 h-4 w-4" />
+                        Restore
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          deleteNoteForever(note.id);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -267,14 +442,22 @@ const Notes = () => {
                     </Button>
                     <Input
                       value={selectedNote.title}
-                      onChange={(e) => updateNote(selectedNote.id, { title: e.target.value })}
+                      onChange={(e) => {
+                        if (showBin) return;
+                        updateNote(selectedNote.id, { title: e.target.value });
+                      }}
+                      readOnly={showBin}
                       className="border-none bg-transparent text-xl font-semibold focus-visible:ring-0 px-0"
                     />
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <Select
                       value={selectedNote.category}
-                      onValueChange={(value) => updateNote(selectedNote.id, { category: value })}
+                      onValueChange={(value) => {
+                        if (showBin) return;
+                        updateNote(selectedNote.id, { category: value });
+                      }}
+                      disabled={showBin}
                     >
                       <SelectTrigger className="w-[140px] h-8 text-xs">
                         <SelectValue />
@@ -294,23 +477,44 @@ const Notes = () => {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => deleteNote(selectedNote.id)}
+                      onClick={() => {
+                        if (showBin) {
+                          deleteNoteForever(selectedNote.id);
+                        } else {
+                          deleteNote(selectedNote.id);
+                        }
+                      }}
                       className="text-destructive hover:text-destructive hover:bg-destructive/10"
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
+                    {showBin ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => restoreNote(selectedNote.id)}
+                        className="h-8"
+                      >
+                        <RotateCcw className="mr-2 h-4 w-4" />
+                        Restore
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex-1 p-6 overflow-auto">
                   <ReactQuill 
                     key={selectedNote.id}
                     theme="snow" 
-                    value={selectedNote.content} 
-                    onChange={(content) => updateNote(selectedNote.id, { content })}
+                    value={editorContent}
+                    onChange={(content) => {
+                      setEditorContent(content);
+                      if (!showBin) scheduleContentSave(selectedNote.id, content);
+                    }}
                     modules={quillModules}
                     formats={quillFormats}
                     className="h-full"
                     placeholder="Start writing your note..."
+                    readOnly={showBin}
                   />
                 </div>
               </>
@@ -340,13 +544,29 @@ const Notes = () => {
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-semibold text-foreground">Notes</h1>
-                <Button
-                  onClick={createNote}
-                  size="icon"
-                  className="h-8 w-8 rounded-full border border-border/40"
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={showBin ? "outline" : "ghost"}
+                    size="sm"
+                    className="h-8 rounded-full border border-border/40 px-3"
+                    onClick={() => {
+                      allowAutoSelectRef.current = true;
+                      setSelectedNoteId(null);
+                      setShowBin((v) => !v);
+                    }}
+                    title="Bin"
+                  >
+                    Bin
+                  </Button>
+                  <Button
+                    onClick={createNote}
+                    size="icon"
+                    className="h-8 w-8 rounded-full border border-border/40"
+                    title="New note"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -362,6 +582,7 @@ const Notes = () => {
                   <div
                     key={note.id}
                     onClick={() => {
+                      allowAutoSelectRef.current = true;
                       setSelectedNoteId(note.id);
                       setShowEditorMobile(true);
                     }}
@@ -373,13 +594,40 @@ const Notes = () => {
                     )}
                   >
                     <h3 className="font-medium text-foreground">{note.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground" dangerouslySetInnerHTML={{ __html: note.content }}></p>
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{getNotePreview(note.content)}</p>
                     <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
                       <span>{note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : new Date(note.updatedAt).toLocaleDateString()}</span>
                       <span className="rounded-full bg-secondary px-2 py-0.5">
                         {note.category}
                       </span>
                     </div>
+                    {showBin ? (
+                      <div className="mt-3 flex items-center justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            restoreNote(note.id);
+                          }}
+                        >
+                          <RotateCcw className="mr-2 h-4 w-4" />
+                          Restore
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            deleteNoteForever(note.id);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -394,13 +642,25 @@ const Notes = () => {
                   </Button>
                   <Input
                     value={selectedNote?.title || ""}
-                    onChange={(e) => selectedNote && updateNote(selectedNote.id, { title: e.target.value })}
+                    onChange={(e) => {
+                      if (!selectedNote) return;
+                      if (showBin) return;
+                      updateNote(selectedNote.id, { title: e.target.value });
+                    }}
+                    readOnly={showBin}
                     className="border-none bg-transparent text-xl font-semibold focus-visible:ring-0 px-0"
                   />
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => selectedNote && deleteNote(selectedNote.id)}
+                    onClick={() => {
+                      if (!selectedNote) return;
+                      if (showBin) {
+                        deleteNoteForever(selectedNote.id);
+                      } else {
+                        deleteNote(selectedNote.id);
+                      }
+                    }}
                     className="text-destructive hover:text-destructive"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -429,11 +689,15 @@ const Notes = () => {
                 <ReactQuill
                   key={selectedNote?.id}
                   theme="snow"
-                  value={selectedNote?.content || ""}
-                  onChange={(content) => selectedNote && updateNote(selectedNote.id, { content })}
+                  value={editorContent}
+                  onChange={(content) => {
+                    setEditorContent(content);
+                    if (selectedNote && !showBin) scheduleContentSave(selectedNote.id, content);
+                  }}
                   modules={quillModules}
                   formats={quillFormats}
                   className="h-full"
+                  readOnly={showBin}
                 />
               </div>
             </div>

@@ -17,3 +17,7 @@ declare module 'react-quill' {
     }
     export default class ReactQuill extends React.Component<ReactQuillProps> {}
 }
+
+declare module "quill-image-drop-module" {
+    export const ImageDrop: any;
+}

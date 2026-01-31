@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { 
   LayoutDashboard, 
@@ -14,16 +15,19 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
-const navItems = [
+const BASE_NAV_ITEMS = [
   { title: "Overview", path: "/", icon: LayoutDashboard },
   { title: "Schedule", path: "/schedule", icon: CalendarDays },
   { title: "Tasks", path: "/tasks", icon: CheckSquare },
   { title: "Notes", path: "/notes", icon: FileText },
   { title: "Saved Links", path: "/links", icon: Link },
   { title: "Categories", path: "/categories", icon: Tag },
-  { title: "PRMS", path: "/external", icon: ExternalLink },
 ];
+
+const PRMS_NAV_ITEM = { title: "PRMS", path: "/external", icon: ExternalLink };
 
 const bottomItems = [
   { title: "Settings", path: "/settings", icon: Settings },
@@ -32,6 +36,40 @@ const bottomItems = [
 export function Sidebar() {
   const location = useLocation();
   const { logout } = useAuth();
+  const [showPrms, setShowPrms] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const coerceBool = (value: unknown) => {
+      if (value === true) return true;
+      if (value === false) return false;
+      if (typeof value === "string") return value.toLowerCase() === "true";
+      if (typeof value === "number") return value === 1;
+      return false;
+    };
+
+    (async () => {
+      try {
+        const primary = await getDoc(doc(db, "showPRMS", "showPrms"));
+        const snap = primary;
+        const data = snap.data()
+        const raw = data.showPrms
+        if (!cancelled) setShowPrms(coerceBool(raw));
+      } catch {
+        if (!cancelled) setShowPrms(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const navItems = useMemo(
+    () => (showPrms ? [...BASE_NAV_ITEMS, PRMS_NAV_ITEM] : BASE_NAV_ITEMS),
+    [showPrms],
+  );
 
   return (
     <aside className="h-[100dvh] w-64 flex-shrink-0 overflow-hidden bg-sidebar border-r border-sidebar-border flex flex-col lg:h-screen lg:sticky lg:top-0">
@@ -42,7 +80,7 @@ export function Sidebar() {
             <User className="h-5 w-5 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-foreground">Self-Management</h1>
+            <h1 className="text-sm font-semibold text-foreground">Ekaagra</h1>
             <p className="text-xs text-muted-foreground">Dashboard</p>
           </div>
         </div>
