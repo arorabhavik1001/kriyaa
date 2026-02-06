@@ -155,6 +155,8 @@ const Notes = () => {
 
   const contentSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorDirtyRef = useRef(false);
+  const activeNoteIdRef = useRef<string | null>(null);
+  const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -178,17 +180,23 @@ const Notes = () => {
   // Keep a local (controlled) copy of the editor content.
   // This prevents rapid Firestore snapshot updates from resetting Quill DOM state mid-interaction (e.g. image resize drag).
   useEffect(() => {
-    if (!selectedNote) {
-      setEditorContent("");
+    const hasNoteChanged = activeNoteIdRef.current !== selectedNoteId;
+    if (hasNoteChanged) {
+      activeNoteIdRef.current = selectedNoteId;
       editorDirtyRef.current = false;
+      pendingSaveRef.current = null;
       if (contentSaveTimerRef.current) {
         clearTimeout(contentSaveTimerRef.current);
         contentSaveTimerRef.current = null;
       }
+    }
+
+    if (!selectedNote) {
+      setEditorContent("");
       return;
     }
 
-    if (!editorDirtyRef.current) {
+    if (!editorDirtyRef.current || hasNoteChanged) {
       setEditorContent(selectedNote.content || "");
     }
   }, [selectedNoteId, selectedNote?.content]);
@@ -246,13 +254,17 @@ const Notes = () => {
   const scheduleContentSave = useCallback(
     (id: string, content: string) => {
       editorDirtyRef.current = true;
+      pendingSaveRef.current = { id, content };
       if (contentSaveTimerRef.current) {
         clearTimeout(contentSaveTimerRef.current);
       }
       contentSaveTimerRef.current = setTimeout(async () => {
         contentSaveTimerRef.current = null;
-        await updateNote(id, { content });
+        const pending = pendingSaveRef.current;
+        if (!pending || pending.id !== id) return;
+        await updateNote(pending.id, { content: pending.content });
         editorDirtyRef.current = false;
+        pendingSaveRef.current = null;
       }, 600);
     },
     []

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export interface CalendarEvent {
@@ -16,6 +16,15 @@ export interface CalendarEvent {
   };
   htmlLink: string;
   attendees?: { email: string }[];
+}
+
+export interface CreateEventParams {
+  summary: string;
+  description?: string;
+  location?: string;
+  start: Date;
+  end: Date;
+  allDay?: boolean;
 }
 
 export type GoogleCalendarQueryOptions = {
@@ -73,6 +82,8 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
 
   useEffect(() => {
     const abort = new AbortController();
+    let retryCount = 0;
+    const MAX_RETRIES = 2;
 
     const fetchEvents = async () => {
       if (!user) {
@@ -201,16 +212,35 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
         }
 
         if (!resp.ok) {
+          // Retry logic for transient network errors
+          if (retryCount < MAX_RETRIES && (resp.status >= 500 || resp.status === 0)) {
+            retryCount++;
+            console.log(`[calendar] Retrying fetch (${retryCount}/${MAX_RETRIES})...`);
+            await new Promise((r) => setTimeout(r, 1000 * retryCount));
+            return fetchEvents();
+          }
           throw new Error("Failed to fetch calendar events");
         }
 
         const data = await resp.json();
         setEvents(data.items || []);
       } catch (err) {
+        if (abort.signal.aborted) return;
         console.error(err);
-        setError(err instanceof Error ? err.message : "An error occurred");
+        // Only set error for non-abort errors
+        const message = err instanceof Error ? err.message : "An error occurred";
+        // Retry for network errors
+        if (retryCount < MAX_RETRIES && (message.includes("fetch") || message.includes("network"))) {
+          retryCount++;
+          console.log(`[calendar] Retrying after error (${retryCount}/${MAX_RETRIES})...`);
+          await new Promise((r) => setTimeout(r, 1000 * retryCount));
+          return fetchEvents();
+        }
+        setError(message);
       } finally {
-        setLoading(false);
+        if (!abort.signal.aborted) {
+          setLoading(false);
+        }
       }
     };
 
@@ -218,5 +248,45 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
     return () => abort.abort();
   }, [user, options.timeMin, options.timeMax, options.maxResults, disconnectGoogleCalendar, directMode]);
 
-  return { events, loading, error };
+  const createEvent = useCallback(async (params: CreateEventParams): Promise<CalendarEvent | null> => {
+    if (!user) {
+      throw new Error("Not authenticated");
+    }
+
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://kriyaa.onrender.com";
+    const idToken = await user.getIdToken();
+
+    const resp = await fetch(`${backendUrl}/api/calendar/events`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        summary: params.summary,
+        description: params.description,
+        location: params.location,
+        start: params.start.toISOString(),
+        end: params.end.toISOString(),
+        allDay: params.allDay || false,
+      }),
+    });
+
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || "Failed to create event");
+    }
+
+    const data = await resp.json();
+    return data.event;
+  }, [user]);
+
+  const refetch = useCallback(() => {
+    // Trigger a refetch by clearing cache
+    if (user) {
+      accessTokenCache.delete(user.uid);
+    }
+  }, [user]);
+
+  return { events, loading, error, createEvent, refetch };
 }

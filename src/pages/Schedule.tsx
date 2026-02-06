@@ -7,8 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
+import { useGoogleCalendar, CreateEventParams } from "@/hooks/useGoogleCalendar";
+import { toast } from "sonner";
 import {
   addDays,
   addMonths,
@@ -29,7 +35,7 @@ import {
   startOfWeek,
   startOfYear,
 } from "date-fns";
-import { Calendar, CalendarDays, ChevronLeft, ChevronRight, Clock, ExternalLink } from "lucide-react";
+import { Calendar, CalendarDays, ChevronLeft, ChevronRight, Clock, ExternalLink, Plus, Loader2 } from "lucide-react";
 
 type ScheduleView = "day" | "week" | "month" | "year";
 
@@ -265,8 +271,19 @@ export default function Schedule() {
   const [showReconnect, setShowReconnect] = useState(false);
   const { connectGoogleCalendar, calendarConnected } = useAuth();
 
+  // Create event dialog state
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newEventTitle, setNewEventTitle] = useState("");
+  const [newEventDescription, setNewEventDescription] = useState("");
+  const [newEventLocation, setNewEventLocation] = useState("");
+  const [newEventDate, setNewEventDate] = useState<Date>(new Date());
+  const [newEventStartTime, setNewEventStartTime] = useState("09:00");
+  const [newEventEndTime, setNewEventEndTime] = useState("10:00");
+  const [newEventAllDay, setNewEventAllDay] = useState(false);
+  const [creatingEvent, setCreatingEvent] = useState(false);
+
   const query = useMemo(() => getRangeForView(view, activeDate), [view, activeDate]);
-  const { events, loading, error } = useGoogleCalendar(query);
+  const { events, loading, error, createEvent } = useGoogleCalendar(query);
 
   // Show reconnect banner if error is auth-related or accessToken is null after an error
   const calendarDisconnected =
@@ -437,6 +454,178 @@ export default function Schedule() {
           </div>
 
           <div className="flex items-center gap-2">
+            {calendarConnected && (
+              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => {
+                      setNewEventDate(activeDate);
+                      setNewEventTitle("");
+                      setNewEventDescription("");
+                      setNewEventLocation("");
+                      setNewEventStartTime("09:00");
+                      setNewEventEndTime("10:00");
+                      setNewEventAllDay(false);
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Event
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Add Calendar Event</DialogTitle>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="event-title">Title</Label>
+                      <Input
+                        id="event-title"
+                        placeholder="Event title"
+                        value={newEventTitle}
+                        onChange={(e) => setNewEventTitle(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="event-date">Date</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" className="w-full justify-start text-left font-normal">
+                            <Calendar className="mr-2 h-4 w-4" />
+                            {format(newEventDate, "PPP")}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <CalendarComponent
+                            mode="single"
+                            selected={newEventDate}
+                            onSelect={(d) => d && setNewEventDate(d)}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Switch
+                        id="all-day"
+                        checked={newEventAllDay}
+                        onCheckedChange={setNewEventAllDay}
+                      />
+                      <Label htmlFor="all-day">All day event</Label>
+                    </div>
+                    {!newEventAllDay && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="start-time">Start Time</Label>
+                          <Input
+                            id="start-time"
+                            type="time"
+                            value={newEventStartTime}
+                            onChange={(e) => setNewEventStartTime(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="end-time">End Time</Label>
+                          <Input
+                            id="end-time"
+                            type="time"
+                            value={newEventEndTime}
+                            onChange={(e) => setNewEventEndTime(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="event-location">Location (optional)</Label>
+                      <Input
+                        id="event-location"
+                        placeholder="Add location"
+                        value={newEventLocation}
+                        onChange={(e) => setNewEventLocation(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="event-description">Description (optional)</Label>
+                      <Textarea
+                        id="event-description"
+                        placeholder="Add description"
+                        value={newEventDescription}
+                        onChange={(e) => setNewEventDescription(e.target.value)}
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setCreateDialogOpen(false)}
+                      disabled={creatingEvent}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={async () => {
+                        if (!newEventTitle.trim()) {
+                          toast.error("Please enter a title");
+                          return;
+                        }
+                        setCreatingEvent(true);
+                        try {
+                          const [startH, startM] = newEventStartTime.split(":").map(Number);
+                          const [endH, endM] = newEventEndTime.split(":").map(Number);
+                          
+                          const startDate = new Date(newEventDate);
+                          startDate.setHours(startH, startM, 0, 0);
+                          
+                          const endDate = new Date(newEventDate);
+                          endDate.setHours(endH, endM, 0, 0);
+                          
+                          if (endDate <= startDate && !newEventAllDay) {
+                            endDate.setDate(endDate.getDate() + 1);
+                          }
+
+                          await createEvent({
+                            summary: newEventTitle.trim(),
+                            description: newEventDescription.trim() || undefined,
+                            location: newEventLocation.trim() || undefined,
+                            start: startDate,
+                            end: endDate,
+                            allDay: newEventAllDay,
+                          });
+                          
+                          toast.success("Event created", {
+                            description: newEventTitle.trim(),
+                          });
+                          setCreateDialogOpen(false);
+                          // Reload page to refetch events
+                          window.location.reload();
+                        } catch (err) {
+                          console.error(err);
+                          toast.error("Failed to create event", {
+                            description: err instanceof Error ? err.message : "Please try again",
+                          });
+                        } finally {
+                          setCreatingEvent(false);
+                        }
+                      }}
+                      disabled={creatingEvent || !newEventTitle.trim()}
+                    >
+                      {creatingEvent ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        "Create Event"
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
             <Button
               variant="outline"
               size="icon"

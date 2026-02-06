@@ -310,6 +310,75 @@ app.get("/api/calendar/events", async (req, res) => {
   }
 });
 
+// Create a new calendar event
+app.post("/api/calendar/events", async (req, res) => {
+  try {
+    const idToken = requireAuthHeader(req);
+    if (!idToken) return res.status(401).json({ error: "Missing Authorization Bearer token" });
+
+    const decoded = await verifyFirebaseIdToken(idToken);
+    const uid = decoded.uid;
+
+    const refreshToken = await getRefreshToken(uid);
+    if (!refreshToken) {
+      return res.status(401).json({ error: "Google Calendar not connected" });
+    }
+
+    const oauth2 = makeOAuthClient();
+    oauth2.setCredentials({ refresh_token: refreshToken });
+
+    const calendar = google.calendar({ version: "v3", auth: oauth2 });
+
+    const { summary, description, location, start, end, allDay } = req.body;
+
+    if (!summary) {
+      return res.status(400).json({ error: "Event summary (title) is required" });
+    }
+
+    let eventBody: any;
+    if (allDay) {
+      const startDate = start ? new Date(start).toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
+      const endDate = end ? new Date(end).toISOString().split("T")[0] : startDate;
+      eventBody = {
+        summary,
+        description: description || undefined,
+        location: location || undefined,
+        start: { date: startDate },
+        end: { date: endDate },
+      };
+    } else {
+      const startDateTime = start ? new Date(start).toISOString() : new Date().toISOString();
+      const endDateTime = end ? new Date(end).toISOString() : new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      eventBody = {
+        summary,
+        description: description || undefined,
+        location: location || undefined,
+        start: { dateTime: startDateTime },
+        end: { dateTime: endDateTime },
+      };
+    }
+
+    const resp = await calendar.events.insert({
+      calendarId: "primary",
+      requestBody: eventBody,
+    });
+
+    // Clear cache for this user
+    for (const key of eventsCache.keys()) {
+      if (key.startsWith(`${uid}|`)) {
+        eventsCache.delete(key);
+      }
+    }
+
+    log(req, "calendar: event created", { uid, eventId: resp.data.id });
+    return res.json({ event: resp.data });
+  } catch (e: any) {
+    console.error(e);
+    const message = typeof e?.message === "string" ? e.message : "Failed to create event";
+    return res.status(500).json({ error: message });
+  }
+});
+
 // Mint a short-lived Google access token for the user (from stored refresh token)
 // Use-case: frontend can call Google APIs directly for lower latency.
 app.get("/api/calendar/access-token", async (req, res) => {

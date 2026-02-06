@@ -41,6 +41,8 @@ const priorityColors = {
   low: "text-muted-foreground border-muted",
 };
 
+const MAX_SUBTASK_DEPTH = 2;
+
 const BinTaskRow = ({
   task,
   onRestore,
@@ -160,8 +162,15 @@ const TaskItem = ({
   const isEditing = editingTasks.has(task.id);
   const draft = editDrafts[task.id] ?? task.title;
   const isAddingSubtask = subtaskEditors.has(task.id);
+  const canAddSubtask = level < MAX_SUBTASK_DEPTH;
 
   const openAddSubtask = () => {
+    if (!canAddSubtask) {
+      toast.error("Subtask limit reached", {
+        description: "You can only nest subtasks up to 2 levels.",
+      });
+      return;
+    }
     setSubtaskEditors((prev) => new Set(prev).add(task.id));
     setExpandedTasks((prevExpanded) => new Set(prevExpanded).add(task.id));
     setSubtaskDrafts((prev) => ({ ...prev, [task.id]: prev[task.id] ?? "" }));
@@ -182,6 +191,7 @@ const TaskItem = ({
   const handleAddSubtask = async () => {
     const title = (subtaskDrafts[task.id] ?? "").trim();
     if (!title) return;
+    if (!canAddSubtask) return;
     try {
       await addSubtask(task.id, title);
       closeAddSubtask();
@@ -367,19 +377,21 @@ const TaskItem = ({
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      openAddSubtask();
-                    }}
-                    aria-label="Add subtask"
-                  >
-                    <CornerDownRight className="h-4 w-4" />
-                  </Button>
+                  {canAddSubtask ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        openAddSubtask();
+                      }}
+                      aria-label="Add subtask"
+                    >
+                      <CornerDownRight className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -436,19 +448,21 @@ const TaskItem = ({
               >
                 <Pencil className="h-4 w-4" />
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openAddSubtask();
-                }}
-                aria-label="Add subtask"
-              >
-                <CornerDownRight className="h-4 w-4" />
-              </Button>
+              {canAddSubtask ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openAddSubtask();
+                  }}
+                  aria-label="Add subtask"
+                >
+                  <CornerDownRight className="h-4 w-4" />
+                </Button>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon"

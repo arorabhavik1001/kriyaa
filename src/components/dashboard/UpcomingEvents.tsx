@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Calendar, Clock, Loader2, MapPin, AlignLeft } from "lucide-react";
+import { Calendar, Clock, Loader2, MapPin, AlignLeft, AlertCircle, RefreshCw } from "lucide-react";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { format, differenceInMinutes, isToday, isTomorrow } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
@@ -8,7 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
 export function UpcomingEvents() {
-  const { events, loading, error } = useGoogleCalendar();
+  const { events, loading, error, refetch } = useGoogleCalendar();
   const { user, calendarConnected, connectGoogleCalendar } = useAuth();
   const navigate = useNavigate();
 
@@ -129,7 +129,21 @@ export function UpcomingEvents() {
           </div>
         )}
 
-            {!loading && user && calendarConnected && events.length === 0 && (
+        {!loading && user && calendarConnected && error && (
+          <div className="flex h-full flex-col items-center justify-center p-4 text-center min-h-[200px] gap-3">
+            <AlertCircle className="h-10 w-10 text-destructive/50" />
+            <div>
+              <p className="text-sm font-medium text-foreground">Failed to load events</p>
+              <p className="text-xs text-muted-foreground mt-1">{error}</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Retry
+            </Button>
+          </div>
+        )}
+
+            {!loading && user && calendarConnected && !error && events.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center p-4 text-center min-h-[200px]">
              <div className="bg-muted/50 p-4 rounded-full mb-3">
                 <Calendar className="h-6 w-6 text-muted-foreground" />

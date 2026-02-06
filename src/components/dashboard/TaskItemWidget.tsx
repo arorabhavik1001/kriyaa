@@ -48,8 +48,10 @@ export const TaskItem = ({
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
+  const canAddSubtask = level < 2;
 
   const openAddSubtask = () => {
+    if (!canAddSubtask) return;
     setIsAddingSubtask(true);
     // Ensure parent is expanded
     if (!expandedTasks.has(task.id)) {
@@ -183,10 +185,12 @@ export const TaskItem = ({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openAddSubtask(); }}>
-                <CornerDownRight className="mr-2 h-4 w-4" />
-                Add Subtask
-              </DropdownMenuItem>
+              {canAddSubtask ? (
+                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openAddSubtask(); }}>
+                  <CornerDownRight className="mr-2 h-4 w-4" />
+                  Add Subtask
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();

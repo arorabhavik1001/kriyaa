@@ -12,6 +12,7 @@ import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Bell, Calendar, Repeat } from "lucide-react";
 import { format } from "date-fns";
+import { toast } from "sonner";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   DropdownMenu,
@@ -36,6 +37,7 @@ export function QuickTasks() {
   const [newRepeat, setNewRepeat] = useState<"daily" | "weekly" | "monthly" | "none">("none");
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [completingTasks, setCompletingTasks] = useState<Set<string>>(new Set());
+  const MAX_SUBTASK_DEPTH = 2;
 
   useEffect(() => {
     if (!user) return;
@@ -121,8 +123,34 @@ export function QuickTasks() {
       setIsDialogOpen(false);
   };
 
+  const getTaskDepth = (taskId: string | null) => {
+    if (!taskId) return 0;
+    let depth = 0;
+    let currentId: string | null | undefined = taskId;
+    const seen = new Set<string>();
+
+    while (currentId) {
+      if (seen.has(currentId)) break;
+      seen.add(currentId);
+      const current = tasks.find((t) => t.id === currentId);
+      const parentId = current?.parentId ?? null;
+      if (!parentId) return depth;
+      depth += 1;
+      currentId = parentId;
+    }
+
+    return depth;
+  };
+
   const addSubtask = async (parentId: string, title: string) => {
     if (!user || !title.trim()) return;
+    const parentDepth = getTaskDepth(parentId);
+    if (parentDepth >= MAX_SUBTASK_DEPTH) {
+      toast.error("Subtask limit reached", {
+        description: "You can only nest subtasks up to 2 levels.",
+      });
+      return;
+    }
     const siblingTasks = tasks.filter((t) => t.parentId === parentId);
     const maxOrder = siblingTasks.length > 0 ? Math.max(...siblingTasks.map((t) => t.order || 0)) : 0;
     const defaultCategory = categories[0]?.name || "General";
