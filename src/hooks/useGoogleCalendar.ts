@@ -34,7 +34,7 @@ export type GoogleCalendarQueryOptions = {
 };
 
 export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
-  const { user, disconnectGoogleCalendar } = useAuth();
+  const { user } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,11 +126,7 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
                 headers: { Authorization: `Bearer ${idToken}` },
               });
               if (!resp.ok) {
-                if (resp.status === 401) {
-                  disconnectGoogleCalendar();
-                  throw new Error("Google Calendar not connected");
-                }
-                throw new Error("Failed to mint access token");
+                throw new Error(resp.status === 401 ? "Google Calendar session expired" : "Failed to mint access token");
               }
               const data = (await resp.json()) as {
                 accessToken?: string;
@@ -181,11 +177,7 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
           });
 
           if (!response.ok) {
-            if (response.status === 401) {
-              disconnectGoogleCalendar();
-              throw new Error("Google Calendar not connected");
-            }
-            throw new Error("Failed to fetch calendar events");
+            throw new Error(response.status === 401 ? "Google Calendar session expired" : "Failed to fetch calendar events");
           }
 
           const data = await response.json();
@@ -246,7 +238,7 @@ export function useGoogleCalendar(options: GoogleCalendarQueryOptions = {}) {
 
     fetchEvents();
     return () => abort.abort();
-  }, [user, options.timeMin, options.timeMax, options.maxResults, disconnectGoogleCalendar, directMode]);
+  }, [user, options.timeMin, options.timeMax, options.maxResults, directMode]);
 
   const createEvent = useCallback(async (params: CreateEventParams): Promise<CalendarEvent | null> => {
     if (!user) {

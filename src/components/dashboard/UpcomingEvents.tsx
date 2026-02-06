@@ -1,16 +1,35 @@
-import { useMemo } from "react";
-import { Calendar, Clock, Loader2, MapPin, AlignLeft, AlertCircle, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Calendar, Clock, Loader2, MapPin, AlignLeft, AlertCircle, RefreshCw, Plus } from "lucide-react";
 import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
 import { format, differenceInMinutes, isToday, isTomorrow } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { toast } from "sonner";
 
 export function UpcomingEvents() {
-  const { events, loading, error, refetch } = useGoogleCalendar();
-  const { user, calendarConnected, connectGoogleCalendar } = useAuth();
+  const { events, loading, error, refetch, createEvent } = useGoogleCalendar();
+  const { user, calendarConnected } = useAuth();
   const navigate = useNavigate();
+
+  // Create event dialog state
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newEventTitle, setNewEventTitle] = useState("");
+  const [newEventDescription, setNewEventDescription] = useState("");
+  const [newEventLocation, setNewEventLocation] = useState("");
+  const [newEventDate, setNewEventDate] = useState<Date>(new Date());
+  const [newEventStartTime, setNewEventStartTime] = useState("09:00");
+  const [newEventEndTime, setNewEventEndTime] = useState("10:00");
+  const [newEventAllDay, setNewEventAllDay] = useState(false);
+  const [creatingEvent, setCreatingEvent] = useState(false);
 
   const getDuration = (start: any, end: any) => {
     if (start.date || end.date) return "All day";
@@ -92,14 +111,36 @@ export function UpcomingEvents() {
           <p className="text-xs text-muted-foreground mt-0.5">Your upcoming agenda</p>
         </div>
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 rounded-full border border-border/40 px-3 text-xs"
-          onClick={() => navigate("/schedule")}
-        >
-          View all
-        </Button>
+        <div className="flex items-center gap-2">
+          {calendarConnected && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-full border border-border/40"
+              onClick={() => {
+                setNewEventDate(new Date());
+                setNewEventTitle("");
+                setNewEventDescription("");
+                setNewEventLocation("");
+                setNewEventStartTime("09:00");
+                setNewEventEndTime("10:00");
+                setNewEventAllDay(false);
+                setCreateDialogOpen(true);
+              }}
+              title="Add event"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-full border border-border/40 px-3 text-xs"
+            onClick={() => navigate("/schedule")}
+          >
+            View all
+          </Button>
+        </div>
       </div>
       
       <ScrollArea className="flex-1 p-4">
@@ -116,20 +157,7 @@ export function UpcomingEvents() {
            </div>
         )}
 
-        {!loading && user && !calendarConnected && (
-          <div className="flex h-full flex-col items-center justify-center p-4 text-center min-h-[200px] gap-3">
-            <Calendar className="h-10 w-10 text-muted-foreground/30" />
-            <div>
-              <p className="text-sm font-medium text-foreground">Connect Google Calendar</p>
-              <p className="text-xs text-muted-foreground mt-1">Access expired or not connected.</p>
-            </div>
-            <Button size="sm" variant="outline" onClick={connectGoogleCalendar}>
-              Reconnect
-            </Button>
-          </div>
-        )}
-
-        {!loading && user && calendarConnected && error && (
+        {!loading && user && error && (
           <div className="flex h-full flex-col items-center justify-center p-4 text-center min-h-[200px] gap-3">
             <AlertCircle className="h-10 w-10 text-destructive/50" />
             <div>
@@ -143,7 +171,7 @@ export function UpcomingEvents() {
           </div>
         )}
 
-            {!loading && user && calendarConnected && !error && events.length === 0 && (
+            {!loading && user && !error && events.length === 0 && (
           <div className="flex h-full flex-col items-center justify-center p-4 text-center min-h-[200px]">
              <div className="bg-muted/50 p-4 rounded-full mb-3">
                 <Calendar className="h-6 w-6 text-muted-foreground" />
@@ -235,6 +263,159 @@ export function UpcomingEvents() {
             ))}
         </div>
       </ScrollArea>
+
+      {/* Create Event Dialog */}
+      <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Quick Add Event</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="widget-event-title">Title</Label>
+              <Input
+                id="widget-event-title"
+                placeholder="Event title"
+                value={newEventTitle}
+                onChange={(e) => setNewEventTitle(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="widget-event-date">Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {format(newEventDate, "PPP")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent
+                    mode="single"
+                    selected={newEventDate}
+                    onSelect={(d) => d && setNewEventDate(d)}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="widget-all-day"
+                checked={newEventAllDay}
+                onCheckedChange={setNewEventAllDay}
+              />
+              <Label htmlFor="widget-all-day">All day event</Label>
+            </div>
+            {!newEventAllDay && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="widget-start-time">Start Time</Label>
+                  <Input
+                    id="widget-start-time"
+                    type="time"
+                    value={newEventStartTime}
+                    onChange={(e) => setNewEventStartTime(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="widget-end-time">End Time</Label>
+                  <Input
+                    id="widget-end-time"
+                    type="time"
+                    value={newEventEndTime}
+                    onChange={(e) => setNewEventEndTime(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="widget-event-location">Location (optional)</Label>
+              <Input
+                id="widget-event-location"
+                placeholder="Add location"
+                value={newEventLocation}
+                onChange={(e) => setNewEventLocation(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="widget-event-description">Description (optional)</Label>
+              <Textarea
+                id="widget-event-description"
+                placeholder="Add description"
+                value={newEventDescription}
+                onChange={(e) => setNewEventDescription(e.target.value)}
+                rows={2}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setCreateDialogOpen(false)}
+              disabled={creatingEvent}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (!newEventTitle.trim()) {
+                  toast.error("Please enter a title");
+                  return;
+                }
+                setCreatingEvent(true);
+                try {
+                  const [startH, startM] = newEventStartTime.split(":").map(Number);
+                  const [endH, endM] = newEventEndTime.split(":").map(Number);
+
+                  const startDate = new Date(newEventDate);
+                  startDate.setHours(startH, startM, 0, 0);
+
+                  const endDate = new Date(newEventDate);
+                  endDate.setHours(endH, endM, 0, 0);
+
+                  if (endDate <= startDate && !newEventAllDay) {
+                    endDate.setDate(endDate.getDate() + 1);
+                  }
+
+                  await createEvent({
+                    summary: newEventTitle.trim(),
+                    description: newEventDescription.trim() || undefined,
+                    location: newEventLocation.trim() || undefined,
+                    start: startDate,
+                    end: endDate,
+                    allDay: newEventAllDay,
+                  });
+
+                  toast.success("Event created", {
+                    description: newEventTitle.trim(),
+                  });
+                  setCreateDialogOpen(false);
+                  window.location.reload();
+                } catch (err) {
+                  console.error(err);
+                  toast.error("Failed to create event", {
+                    description: err instanceof Error ? err.message : "Please try again",
+                  });
+                } finally {
+                  setCreatingEvent(false);
+                }
+              }}
+              disabled={creatingEvent || !newEventTitle.trim()}
+            >
+              {creatingEvent ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create Event"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

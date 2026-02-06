@@ -50,6 +50,22 @@ export const TaskItem = ({
   const [editTitle, setEditTitle] = useState("");
   const canAddSubtask = level < 2;
 
+  // Recursive subtask progress
+  const getSubtaskProgress = (t: Task): { done: number; total: number } => {
+    if (!t.subtasks || t.subtasks.length === 0) return { done: 0, total: 0 };
+    let done = 0;
+    let total = 0;
+    for (const sub of t.subtasks) {
+      total++;
+      if (sub.completed) done++;
+      const nested = getSubtaskProgress(sub);
+      done += nested.done;
+      total += nested.total;
+    }
+    return { done, total };
+  };
+  const subtaskProgress = hasSubtasks ? getSubtaskProgress(task) : null;
+
   const openAddSubtask = () => {
     if (!canAddSubtask) return;
     setIsAddingSubtask(true);
@@ -84,7 +100,7 @@ export const TaskItem = ({
   };
 
   return (
-    <div className={cn("flex flex-col", level > 0 && "ml-3 sm:ml-4")}>
+    <div className="flex flex-col">
       <div
         className={cn(
           "group rounded-lg border-b border-transparent pl-1 pr-2 py-3 sm:px-4 transition-all duration-200 cursor-pointer flex items-start gap-2 sm:gap-3 overflow-hidden",
@@ -154,6 +170,29 @@ export const TaskItem = ({
               {task.title}
             </p>
           )}
+
+          {/* Subtask progress bar */}
+          {subtaskProgress && subtaskProgress.total > 0 && !isEditing && (
+            <div className="flex items-center gap-2 mt-1">
+              <div className="h-1 flex-1 max-w-[100px] rounded-full bg-border overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all duration-500",
+                    subtaskProgress.done === subtaskProgress.total
+                      ? "bg-success"
+                      : "bg-primary",
+                  )}
+                  style={{
+                    width: `${Math.round((subtaskProgress.done / subtaskProgress.total) * 100)}%`,
+                  }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {subtaskProgress.done}/{subtaskProgress.total}
+              </span>
+            </div>
+          )}
+
           <div className="flex items-center gap-2 mt-0.5">
             <span className={cn(
               "text-[10px] px-1.5 py-0.5 rounded-full border",
@@ -217,28 +256,41 @@ export const TaskItem = ({
       </div>
 
       {(hasSubtasks && isExpanded) || isAddingSubtask ? (
-        <div className="border-l ml-4 border-border/50 sm:ml-5">
+        <div className="ml-4 sm:ml-5 mt-0.5">
           {hasSubtasks && isExpanded && (
             <>
-              {task.subtasks!.map((subtask) => (
-                <TaskItem 
-                  key={subtask.id} 
-                  task={subtask} 
-                  level={level + 1}
-                  expandedTasks={expandedTasks}
-                  completingTasks={completingTasks}
-                  onToggleExpand={onToggleExpand}
-                  onToggleTask={onToggleTask}
-                  onAddSubtask={onAddSubtask}
-                  onEditTaskTitle={onEditTaskTitle}
-                  onDeleteTask={onDeleteTask}
-                />
-              ))}
+              {task.subtasks!.map((subtask, index) => {
+                const isLastChild = index === task.subtasks!.length - 1 && !isAddingSubtask;
+                return (
+                  <div key={subtask.id} className="relative pl-5">
+                    <div className={cn(
+                      "absolute left-[7px] top-0 w-px bg-border/50",
+                      isLastChild ? "h-[16px]" : "h-full"
+                    )} />
+                    <div className="absolute left-[7px] top-[16px] w-[14px] h-px bg-border/50" />
+                    <div className="absolute left-[4px] top-[13px] h-[7px] w-[7px] rounded-full border-[1.5px] border-primary/50 bg-background z-[1]" />
+                    <TaskItem 
+                      task={subtask} 
+                      level={level + 1}
+                      expandedTasks={expandedTasks}
+                      completingTasks={completingTasks}
+                      onToggleExpand={onToggleExpand}
+                      onToggleTask={onToggleTask}
+                      onAddSubtask={onAddSubtask}
+                      onEditTaskTitle={onEditTaskTitle}
+                      onDeleteTask={onDeleteTask}
+                    />
+                  </div>
+                );
+              })}
             </>
           )}
 
           {isAddingSubtask && (
-            <div className="px-2 pb-3 sm:px-4">
+            <div className="relative pl-5">
+              <div className="absolute left-[7px] top-0 h-[18px] w-px bg-border/50" />
+              <div className="absolute left-[7px] top-[18px] w-[14px] h-px bg-border/50" />
+              <div className="absolute left-[4px] top-[15px] h-[7px] w-[7px] rounded-full border-[1.5px] border-primary/50 bg-background z-[1]" />
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input

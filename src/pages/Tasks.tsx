@@ -8,6 +8,7 @@ import { cn, buildTaskTree } from "@/lib/utils";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, writeBatch } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import confetti from "canvas-confetti";
 import { useCategories } from "@/hooks/useCategories";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
@@ -164,6 +165,22 @@ const TaskItem = ({
   const isAddingSubtask = subtaskEditors.has(task.id);
   const canAddSubtask = level < MAX_SUBTASK_DEPTH;
 
+  // Recursive subtask progress
+  const getSubtaskProgress = (t: Task): { done: number; total: number } => {
+    if (!t.subtasks || t.subtasks.length === 0) return { done: 0, total: 0 };
+    let done = 0;
+    let total = 0;
+    for (const sub of t.subtasks) {
+      total++;
+      if (sub.completed) done++;
+      const nested = getSubtaskProgress(sub);
+      done += nested.done;
+      total += nested.total;
+    }
+    return { done, total };
+  };
+  const subtaskProgress = hasSubtasks ? getSubtaskProgress(task) : null;
+
   const openAddSubtask = () => {
     if (!canAddSubtask) {
       toast.error("Subtask limit reached", {
@@ -233,7 +250,7 @@ const TaskItem = ({
   };
 
   return (
-    <div className={cn("flex flex-col", level > 0 && "ml-4 sm:ml-6")}>
+    <div className="flex flex-col">
       <SortableTaskRow
         task={task}
         render={({ setActivatorNodeRef, listeners, attributes }) => (
@@ -245,10 +262,7 @@ const TaskItem = ({
             )}
           >
             <div className="flex items-start gap-2 min-w-0">
-              <div className={cn("flex items-center pt-0.5", level > 0 ? "gap-1" : "gap-1.5")}>
-                {level > 0 ? (
-                  <CornerDownRight className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
-                ) : null}
+              <div className="flex items-center pt-0.5 gap-1.5">
                 {sortBy === "manual" ? (
                   <button
                     ref={setActivatorNodeRef}
@@ -329,6 +343,28 @@ const TaskItem = ({
                   >
                     {task.title}
                   </p>
+                )}
+
+                {/* Subtask progress bar */}
+                {subtaskProgress && subtaskProgress.total > 0 && !isEditing && (
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <div className="h-1.5 flex-1 max-w-[120px] rounded-full bg-border overflow-hidden">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          subtaskProgress.done === subtaskProgress.total
+                            ? "bg-success"
+                            : "bg-primary",
+                        )}
+                        style={{
+                          width: `${Math.round((subtaskProgress.done / subtaskProgress.total) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {subtaskProgress.done}/{subtaskProgress.total}
+                    </span>
+                  </div>
                 )}
               </div>
 
@@ -479,84 +515,95 @@ const TaskItem = ({
               </div>
             </div>
 
-            {((hasSubtasks && isExpanded) || isAddingSubtask) && !isEditing ? (
-              <div className="mt-3 border-t border-border/50 pt-3">
-                {hasSubtasks && isExpanded ? (
-                  <div className="pl-2">
-                    <SortableContext
-                      items={task.subtasks!.map((t) => t.id)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      {task.subtasks!.map((subtask) => (
-                        <TaskItem
-                          key={subtask.id}
-                          task={subtask}
-                          level={level + 1}
-                          sortBy={sortBy}
-                          expandedTasks={expandedTasks}
-                          setExpandedTasks={setExpandedTasks}
-                          toggleExpand={toggleExpand}
-                          completingTasks={completingTasks}
-                          toggleTask={toggleTask}
-                          deleteTask={deleteTask}
-                          editingTasks={editingTasks}
-                          setEditingTasks={setEditingTasks}
-                          editDrafts={editDrafts}
-                          setEditDrafts={setEditDrafts}
-                          saveTaskTitle={saveTaskTitle}
-                          subtaskEditors={subtaskEditors}
-                          setSubtaskEditors={setSubtaskEditors}
-                          subtaskDrafts={subtaskDrafts}
-                          setSubtaskDrafts={setSubtaskDrafts}
-                          addSubtask={addSubtask}
-                        />
-                      ))}
-                    </SortableContext>
-                  </div>
-                ) : null}
-
-                {isAddingSubtask ? (
-                  <div className="mt-2">
-                    <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          value={subtaskDrafts[task.id] ?? ""}
-                          onChange={(e) =>
-                            setSubtaskDrafts((prev) => ({
-                              ...prev,
-                              [task.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Subtask title..."
-                          className="h-10 text-base sm:h-8 sm:text-sm"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleAddSubtask();
-                            if (e.key === "Escape") closeAddSubtask();
-                          }}
-                          autoFocus
-                        />
-                        <div className="flex gap-2 sm:justify-end">
-                          <Button size="sm" onClick={handleAddSubtask} className="w-full sm:w-auto">
-                            Add
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={closeAddSubtask}
-                            className="w-full sm:w-auto"
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         )}
       />
+
+      {/* Flowchart-style subtask tree */}
+      {((hasSubtasks && isExpanded) || isAddingSubtask) && !isEditing ? (
+        <div className="ml-5 sm:ml-7 mt-0.5">
+          <SortableContext
+            items={(hasSubtasks && isExpanded ? task.subtasks! : []).map((t) => t.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {hasSubtasks && isExpanded && task.subtasks!.map((subtask, index) => {
+              const isLastChild = index === task.subtasks!.length - 1 && !isAddingSubtask;
+              return (
+                <div key={subtask.id} className="relative pl-5">
+                  <div className={cn(
+                    "absolute left-[7px] top-0 w-px bg-border",
+                    isLastChild ? "h-[18px]" : "h-full"
+                  )} />
+                  <div className="absolute left-[7px] top-[18px] w-[14px] h-px bg-border" />
+                  <div className="absolute left-[4px] top-[15px] h-[7px] w-[7px] rounded-full border-[1.5px] border-primary/50 bg-background z-[1]" />
+                  <TaskItem
+                    task={subtask}
+                    level={level + 1}
+                    sortBy={sortBy}
+                    expandedTasks={expandedTasks}
+                    setExpandedTasks={setExpandedTasks}
+                    toggleExpand={toggleExpand}
+                    completingTasks={completingTasks}
+                    toggleTask={toggleTask}
+                    deleteTask={deleteTask}
+                    editingTasks={editingTasks}
+                    setEditingTasks={setEditingTasks}
+                    editDrafts={editDrafts}
+                    setEditDrafts={setEditDrafts}
+                    saveTaskTitle={saveTaskTitle}
+                    subtaskEditors={subtaskEditors}
+                    setSubtaskEditors={setSubtaskEditors}
+                    subtaskDrafts={subtaskDrafts}
+                    setSubtaskDrafts={setSubtaskDrafts}
+                    addSubtask={addSubtask}
+                  />
+                </div>
+              );
+            })}
+          </SortableContext>
+
+          {isAddingSubtask && (
+            <div className="relative pl-5">
+              <div className="absolute left-[7px] top-0 h-[20px] w-px bg-border" />
+              <div className="absolute left-[7px] top-[20px] w-[14px] h-px bg-border" />
+              <div className="absolute left-[4px] top-[17px] h-[7px] w-[7px] rounded-full border-[1.5px] border-primary/50 bg-background z-[1]" />
+              <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={subtaskDrafts[task.id] ?? ""}
+                    onChange={(e) =>
+                      setSubtaskDrafts((prev) => ({
+                        ...prev,
+                        [task.id]: e.target.value,
+                      }))
+                    }
+                    placeholder="Subtask title..."
+                    className="h-10 text-base sm:h-8 sm:text-sm"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddSubtask();
+                      if (e.key === "Escape") closeAddSubtask();
+                    }}
+                    autoFocus
+                  />
+                  <div className="flex gap-2 sm:justify-end">
+                    <Button size="sm" onClick={handleAddSubtask} className="w-full sm:w-auto">
+                      Add
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={closeAddSubtask}
+                      className="w-full sm:w-auto"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 };
@@ -691,11 +738,22 @@ const Tasks = () => {
     const newStatus = !task.completed;
     
     if (newStatus) {
-        // Completing with animation
+        // Completing with animation + confetti
         setCompletingTasks(prev => new Set(prev).add(task.id));
         toast.success("Task Completed", {
             description: task.title,
         });
+
+        // Fire confetti for root tasks 🎉
+        if (!task.parentId) {
+          confetti({
+            particleCount: 60,
+            spread: 55,
+            origin: { y: 0.7 },
+            colors: ["#3b82f6", "#8b5cf6", "#06b6d4", "#10b981", "#f59e0b"],
+            disableForReducedMotion: true,
+          });
+        }
 
         setTimeout(async () => {
             await updateDoc(doc(db, "tasks", task.id), {

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -268,8 +267,7 @@ function TimelineEventCard({ positioned }: { positioned: PositionedEvent }) {
 export default function Schedule() {
   const [view, setView] = useState<ScheduleView>("month");
   const [activeDate, setActiveDate] = useState(() => new Date());
-  const [showReconnect, setShowReconnect] = useState(false);
-  const { connectGoogleCalendar, calendarConnected } = useAuth();
+  const { calendarConnected } = useAuth();
 
   // Create event dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -284,15 +282,6 @@ export default function Schedule() {
 
   const query = useMemo(() => getRangeForView(view, activeDate), [view, activeDate]);
   const { events, loading, error, createEvent } = useGoogleCalendar(query);
-
-  // Show reconnect banner if error is auth-related or accessToken is null after an error
-  const calendarDisconnected =
-    error &&
-    (error.toLowerCase().includes("token") ||
-      error.toLowerCase().includes("auth") ||
-      error.toLowerCase().includes("unauthorized") ||
-      error.toLowerCase().includes("forbidden") ||
-      !calendarConnected);
 
   const normalizedEvents = useMemo(() => {
     const e = events as unknown as CalendarEvent[];
@@ -420,30 +409,6 @@ export default function Schedule() {
   return (
     <DashboardLayout>
       <div className="animate-fade-in max-w-6xl mx-auto">
-        {/* Calendar disconnected banner */}
-        {calendarDisconnected && (
-          <div className="mb-4">
-            <Alert variant="destructive" className="flex items-center justify-between gap-4">
-              <div>
-                <AlertTitle>Calendar disconnected</AlertTitle>
-                <AlertDescription>
-                  Calendar access expired or disconnected. Click to reconnect.
-                </AlertDescription>
-              </div>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  await connectGoogleCalendar();
-                  setShowReconnect(false);
-                }}
-              >
-                Reconnect
-              </Button>
-            </Alert>
-          </div>
-        )}
-
-        {/* ...existing code... */}
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">

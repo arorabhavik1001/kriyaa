@@ -17,6 +17,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { Command } from "lucide-react";
 
 const BASE_NAV_ITEMS = [
   { title: "Overview", path: "/", icon: LayoutDashboard },
@@ -122,6 +123,18 @@ export function Sidebar() {
               {item.title}
             </NavLink>
           ))} */}
+          <button
+            onClick={() => {
+              document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));
+            }}
+            className="mb-2 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+          >
+            <Command className="h-3.5 w-3.5" />
+            Quick Add
+            <kbd className="ml-auto inline-flex h-5 items-center gap-0.5 rounded border border-border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+              ⌘K
+            </kbd>
+          </button>
           <Button
             variant="ghost"
             className="w-full justify-start gap-3 px-3 py-2.5 text-sm font-medium text-sidebar-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"

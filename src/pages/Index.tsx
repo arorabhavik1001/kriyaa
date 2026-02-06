@@ -4,7 +4,8 @@ import { QuickTasks } from "@/components/dashboard/QuickTasks";
 import { RecentNotes } from "@/components/dashboard/RecentNotes";
 import { UpcomingEvents } from "@/components/dashboard/UpcomingEvents";
 import { Bookmarks } from "@/components/dashboard/Bookmarks";
-import { CheckSquare, FileText, Clock, SlidersHorizontal, GripVertical } from "lucide-react";
+import { FocusTimer } from "@/components/dashboard/FocusTimer";
+import { CheckSquare, FileText, Clock, SlidersHorizontal, GripVertical, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useMemo, useState } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
@@ -33,11 +34,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-type WidgetId = "events" | "bookmarks" | "tasks" | "notes";
+type WidgetId = "events" | "bookmarks" | "tasks" | "notes" | "focus";
 
 const DEFAULT_LAYOUT = {
   left: ["tasks", "notes"] as WidgetId[],
-  right: ["events", "bookmarks"] as WidgetId[],
+  right: ["events", "focus", "bookmarks"] as WidgetId[],
   panelSizes: [67, 33] as [number, number],
 };
 
@@ -46,6 +47,7 @@ const widgetNodes: Record<WidgetId, React.ReactNode> = {
   notes: <RecentNotes />,
   events: <UpcomingEvents />,
   bookmarks: <Bookmarks />,
+  focus: <FocusTimer />,
 };
 
 function findContainer(layout: { left: WidgetId[]; right: WidgetId[] }, id: string) {
@@ -95,6 +97,30 @@ function SortableWidget({
     </div>
   );
 }
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 5) return "Good night";
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  if (hour < 21) return "Good evening";
+  return "Good night";
+};
+
+const getMotivation = () => {
+  const lines = [
+    "Let's make today count!",
+    "One task at a time, you've got this.",
+    "Small steps lead to big results.",
+    "Focus, plan, execute.",
+    "Great things never come from comfort zones.",
+    "You're doing amazing, keep it up!",
+    "Today's efforts are tomorrow's rewards.",
+    "Stay sharp, stay productive.",
+  ];
+  const dayIndex = Math.floor(Date.now() / 86400000) % lines.length;
+  return lines[dayIndex];
+};
 
 const Index = () => {
   const { user, calendarConnected } = useAuth();
@@ -219,9 +245,12 @@ const Index = () => {
         <div className="mb-8 flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">
-              Hare Krishna, {user?.displayName || "User"}
+              {getGreeting()}, {user?.displayName?.split(" ")[0] || "User"} 👋
             </h1>
-            <p className="mt-1 text-muted-foreground">Here's what's on your plate today</p>
+            <p className="mt-1 text-muted-foreground flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-primary/60" />
+              {getMotivation()}
+            </p>
           </div>
           <Button
             variant={customizeMode ? "default" : "outline"}

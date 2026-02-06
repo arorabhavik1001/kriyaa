@@ -15,6 +15,7 @@ import External from "./pages/External";
 import Settings from "./pages/Settings";
 import Schedule from "./pages/Schedule";
 import NotFound from "./pages/NotFound";
+import { CommandMenu } from "./components/CommandMenu";
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <CommandMenu />
           <Routes>
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/login" element={<Login />} />

@@ -51,10 +51,12 @@ const quillModules: ReactQuillProps["modules"] = {
     [{ header: [1, 2, 3, false] }],
     [{ size: ["small", false, "large", "huge"] }],
     ["bold", "italic", "underline", "strike"],
-    [{ color: [] }],
+    [{ color: [] }, { background: [] }],
+    [{ align: [] }],
     [{ list: "ordered" }, { list: "bullet" }],
-    ["link"],
-    ["image"],
+    [{ indent: "-1" }, { indent: "+1" }],
+    ["blockquote", "code-block"],
+    ["link", "image", "video"],
     ["clean"],
   ],
   imageResize: {
@@ -108,10 +110,16 @@ const quillFormats: NonNullable<ReactQuillProps["formats"]> = [
   "underline",
   "strike",
   "color",
+  "background",
+  "align",
   "list",
   "bullet",
+  "indent",
+  "blockquote",
+  "code-block",
   "link",
   "image",
+  "video",
 ];
 
 function getNotePreview(html: string): string {
@@ -125,6 +133,17 @@ function getNotePreview(html: string): string {
     .replace(/&nbsp;|&#160;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function getWordCount(html: string): number {
+  if (!html) return 0;
+  const text = html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return 0;
+  return text.split(/\s+/).length;
 }
 
 interface Note {
@@ -513,7 +532,7 @@ const Notes = () => {
                     ) : null}
                   </div>
                 </div>
-                <div className="flex-1 p-6 overflow-auto">
+                <div className="flex-1 overflow-auto kriyaa-quill-editor">
                   <ReactQuill 
                     key={selectedNote.id}
                     theme="snow" 
@@ -528,6 +547,10 @@ const Notes = () => {
                     placeholder="Start writing your note..."
                     readOnly={showBin}
                   />
+                </div>
+                <div className="flex items-center justify-between border-t border-border px-4 py-1.5 bg-muted/10 text-[11px] text-muted-foreground shrink-0">
+                  <span>{getWordCount(editorContent)} words</span>
+                  <span className="hidden sm:inline opacity-60">⌘+Shift+&gt; / &lt; to resize text</span>
                 </div>
               </>
             ) : (
