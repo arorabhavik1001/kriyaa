@@ -531,11 +531,11 @@ const TaskItem = ({
               return (
                 <div key={subtask.id} className="relative pl-5">
                   <div className={cn(
-                    "absolute left-[7px] top-0 w-px bg-border",
-                    isLastChild ? "h-[18px]" : "h-full"
+                    "absolute left-[7px] top-0 w-0.5 bg-border/80 rounded-full",
+                    isLastChild ? "h-[19px]" : "h-full"
                   )} />
-                  <div className="absolute left-[7px] top-[18px] w-[14px] h-px bg-border" />
-                  <div className="absolute left-[4px] top-[15px] h-[7px] w-[7px] rounded-full border-[1.5px] border-primary/50 bg-background z-[1]" />
+                  <div className="absolute left-[7px] top-[18px] w-[14px] h-0.5 bg-border/80 rounded-full" />
+                  <div className="absolute left-[4px] top-[15px] h-2 w-2 rounded-full border-2 border-primary/60 bg-background z-[1]" />
                   <TaskItem
                     task={subtask}
                     level={level + 1}
@@ -564,9 +564,9 @@ const TaskItem = ({
 
           {isAddingSubtask && (
             <div className="relative pl-5">
-              <div className="absolute left-[7px] top-0 h-[20px] w-px bg-border" />
-              <div className="absolute left-[7px] top-[20px] w-[14px] h-px bg-border" />
-              <div className="absolute left-[4px] top-[17px] h-[7px] w-[7px] rounded-full border-[1.5px] border-primary/50 bg-background z-[1]" />
+              <div className="absolute left-[7px] top-0 h-[21px] w-0.5 bg-border/80 rounded-full" />
+              <div className="absolute left-[7px] top-[20px] w-[14px] h-0.5 bg-border/80 rounded-full" />
+              <div className="absolute left-[4px] top-[17px] h-2 w-2 rounded-full border-2 border-primary/60 bg-background z-[1]" />
               <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3">
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Input

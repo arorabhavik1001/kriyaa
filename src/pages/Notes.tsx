@@ -40,6 +40,38 @@ if (Quill) {
     Quill.register("modules/imageDrop", ImageDrop);
   }
 
+  if (!qAny.__kriyaaQuillImageFormatsRegistered) {
+    qAny.__kriyaaQuillImageFormatsRegistered = true;
+    const BaseImage = Quill.import("formats/image");
+    class KriyaaImage extends BaseImage {
+      static formats(domNode: HTMLElement) {
+        const formats = (super.formats ? super.formats(domNode) : {}) as Record<string, any>;
+        const width = domNode.getAttribute("width") || domNode.style.width;
+        const height = domNode.getAttribute("height") || domNode.style.height;
+        if (width) formats.width = width;
+        if (height) formats.height = height;
+        return formats;
+      }
+
+      format(name: string, value: any) {
+        if (name === "width" || name === "height") {
+          const cssProp = name as "width" | "height";
+          if (value) {
+            this.domNode.setAttribute(name, String(value));
+            (this.domNode as HTMLElement).style[cssProp] = String(value);
+          } else {
+            this.domNode.removeAttribute(name);
+            (this.domNode as HTMLElement).style[cssProp] = "";
+          }
+          return;
+        }
+        super.format(name, value);
+      }
+    }
+
+    Quill.register(KriyaaImage, true);
+  }
+
   const QuillFont = Quill.import("formats/font");
   QuillFont.whitelist = [...QUILL_FONTS];
   Quill.register(QuillFont, true);
@@ -120,6 +152,8 @@ const quillFormats: NonNullable<ReactQuillProps["formats"]> = [
   "link",
   "image",
   "video",
+  "width",
+  "height",
 ];
 
 function getNotePreview(html: string): string {
@@ -167,6 +201,24 @@ const Notes = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editorContent, setEditorContent] = useState<string>("");
   const [showBin, setShowBin] = useState(false);
+
+  const quillRef = useRef<ReactQuill | null>(null);
+  const editorContentRef = useRef<string>("");
+  const selectedNoteIdRef = useRef<string | null>(null);
+  const showBinRef = useRef<boolean>(false);
+  const domSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    editorContentRef.current = editorContent;
+  }, [editorContent]);
+
+  useEffect(() => {
+    selectedNoteIdRef.current = selectedNoteId;
+  }, [selectedNoteId]);
+
+  useEffect(() => {
+    showBinRef.current = showBin;
+  }, [showBin]);
 
   // If false, we intentionally avoid auto-selecting a replacement note.
   // Used to keep the editor closed after deleting a note.
@@ -288,6 +340,61 @@ const Notes = () => {
     },
     []
   );
+
+  // Quill image resize updates DOM styles but may not emit a "text-change",
+  // so ReactQuill's onChange won't fire. Observe DOM mutations to persist width/height.
+  useEffect(() => {
+    const noteId = selectedNoteId;
+    if (!noteId) return;
+    if (showBin) return;
+
+    const quill = (quillRef.current as any)?.getEditor?.();
+    const root = quill?.root as HTMLElement | undefined;
+    if (!root) return;
+
+    const observer = new MutationObserver((mutations) => {
+      const currentId = selectedNoteIdRef.current;
+      if (!currentId) return;
+      if (showBinRef.current) return;
+
+      let relevant = false;
+      for (const m of mutations) {
+        if (m.type !== "attributes") continue;
+        const target = m.target as HTMLElement;
+        if (target.tagName !== "IMG") continue;
+        if (m.attributeName === "style" || m.attributeName === "width" || m.attributeName === "height") {
+          relevant = true;
+          break;
+        }
+      }
+      if (!relevant) return;
+
+      if (domSyncTimerRef.current) clearTimeout(domSyncTimerRef.current);
+      domSyncTimerRef.current = setTimeout(() => {
+        domSyncTimerRef.current = null;
+
+        const html = (quill.root as HTMLElement).innerHTML;
+        if (html === editorContentRef.current) return;
+
+        setEditorContent(html);
+        scheduleContentSave(currentId, html);
+      }, 300);
+    });
+
+    observer.observe(root, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["style", "width", "height"],
+    });
+
+    return () => {
+      observer.disconnect();
+      if (domSyncTimerRef.current) {
+        clearTimeout(domSyncTimerRef.current);
+        domSyncTimerRef.current = null;
+      }
+    };
+  }, [selectedNoteId, showBin, scheduleContentSave]);
 
   useEffect(() => {
     return () => {
@@ -536,6 +643,7 @@ const Notes = () => {
                   <ReactQuill 
                     key={selectedNote.id}
                     theme="snow" 
+                    ref={quillRef as any}
                     value={editorContent}
                     onChange={(content) => {
                       setEditorContent(content);
@@ -724,6 +832,7 @@ const Notes = () => {
                 <ReactQuill
                   key={selectedNote?.id}
                   theme="snow"
+                  ref={quillRef as any}
                   value={editorContent}
                   onChange={(content) => {
                     setEditorContent(content);
