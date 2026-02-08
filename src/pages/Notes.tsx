@@ -1,16 +1,22 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, FileText, Search, Trash2, Clock, PanelLeftClose, PanelLeft, RotateCcw, Archive } from "lucide-react";
+import { 
+  Plus, FileText, Search, Trash2, Clock, RotateCcw, 
+  Book, FolderOpen, File, ChevronDown, ChevronRight, 
+  MoreHorizontal, Pencil, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, GripVertical
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { db } from "@/lib/firebase";
-import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, deleteDoc, orderBy } from "firebase/firestore";
+import { collection, addDoc, query, where, onSnapshot, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
-import { useCategories } from "@/hooks/useCategories";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import ReactQuill from "react-quill";
 import type { ReactQuillProps } from "react-quill";
 import 'react-quill/dist/quill.snow.css';
@@ -31,7 +37,7 @@ const QUILL_FONTS = [
   "mono",
 ] as const;
 
-// Register a restricted font whitelist (system fonts only).
+// Register Quill modules
 if (Quill) {
   const qAny = Quill as any;
   if (!qAny.__kriyaaQuillModulesRegistered) {
@@ -68,7 +74,6 @@ if (Quill) {
         super.format(name, value);
       }
     }
-
     Quill.register(KriyaaImage, true);
   }
 
@@ -91,14 +96,12 @@ const quillModules: ReactQuillProps["modules"] = {
     ["link", "image", "video"],
     ["clean"],
   ],
-  imageResize: {
-    modules: ["Resize", "DisplaySize"],
-  },
+  imageResize: { modules: ["Resize", "DisplaySize"] },
   imageDrop: true,
   keyboard: {
     bindings: {
       increaseFontSize: {
-        key: 190, // '>' is Shift + '.'
+        key: 190,
         shortKey: true,
         shiftKey: true,
         handler: function () {
@@ -114,7 +117,7 @@ const quillModules: ReactQuillProps["modules"] = {
         },
       },
       decreaseFontSize: {
-        key: 188, // '<' is Shift + ','
+        key: 188,
         shortKey: true,
         shiftKey: true,
         handler: function () {
@@ -134,39 +137,21 @@ const quillModules: ReactQuillProps["modules"] = {
 };
 
 const quillFormats: NonNullable<ReactQuillProps["formats"]> = [
-  "header",
-  "font",
-  "size",
-  "bold",
-  "italic",
-  "underline",
-  "strike",
-  "color",
-  "background",
-  "align",
-  "list",
-  "bullet",
-  "indent",
-  "blockquote",
-  "code-block",
-  "link",
-  "image",
-  "video",
-  "width",
-  "height",
+  "header", "font", "size", "bold", "italic", "underline", "strike",
+  "color", "background", "align", "list", "bullet", "indent",
+  "blockquote", "code-block", "link", "image", "video", "width", "height",
 ];
 
 function getNotePreview(html: string): string {
-  if (!html) return "";
+  if (!html) return "No content";
   if (/<img\b/i.test(html)) return "(Image)";
-
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<[^>]*>/g, " ")
     .replace(/&nbsp;|&#160;/gi, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim() || "No content";
 }
 
 function getWordCount(html: string): number {
@@ -180,80 +165,234 @@ function getWordCount(html: string): number {
   return text.split(/\s+/).length;
 }
 
-interface Note {
+function hexToRgba(hex: string, alpha: number): string {
+  const normalized = hex.replace('#', '').trim();
+  if (normalized.length !== 6) return `rgba(0,0,0,${alpha})`;
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Types for OneNote-style hierarchy
+interface Notebook {
+  id: string;
+  name: string;
+  color: string;
+  userId: string;
+  createdAt: any;
+  updatedAt: any;
+}
+
+interface Section {
+  id: string;
+  name: string;
+  notebookId: string;
+  userId: string;
+  createdAt: any;
+  updatedAt: any;
+}
+
+interface Page {
   id: string;
   title: string;
   content: string;
-  updatedAt: any; // Firestore timestamp
-  category: string;
+  sectionId: string;
   userId: string;
+  createdAt: any;
+  updatedAt: any;
   deletedAt?: any;
 }
 
+const NOTEBOOK_COLORS = [
+  "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", 
+  "#3b82f6", "#8b5cf6", "#ec4899", "#6b7280"
+];
+
+const STORAGE_KEYS = {
+  sidebarExpanded: 'notes-sidebar-expanded',
+  pagesListExpanded: 'notes-pages-list-expanded',
+};
+
 const Notes = () => {
   const { user } = useAuth();
-  const { categories } = useCategories();
   const isMobile = useIsMobile();
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showEditorMobile, setShowEditorMobile] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [editorContent, setEditorContent] = useState<string>("");
-  const [showBin, setShowBin] = useState(false);
+  
+  // Data states
+  const [notebooks, setNotebooks] = useState<Notebook[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+  const [pages, setPages] = useState<Page[]>([]);
+  
+  // UI states - initialize from localStorage
+  const [sidebarExpanded, setSidebarExpandedState] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.sidebarExpanded);
+    return stored !== null ? stored === 'true' : true;
+  });
+  const [sidebarHovered, setSidebarHovered] = useState(false);
+  const [pagesListExpanded, setPagesListExpandedState] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEYS.pagesListExpanded);
+    return stored !== null ? stored === 'true' : true;
+  });
+  const [pagesListHovered, setPagesListHovered] = useState(false);
 
+  const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
+  const [dragOverNotebookId, setDragOverNotebookId] = useState<string | null>(null);
+  const [draggingPageId, setDraggingPageId] = useState<string | null>(null);
+  const [dragOverSectionId, setDragOverSectionId] = useState<string | null>(null);
+
+  // Wrapper functions to persist to localStorage
+  const setSidebarExpanded = (value: boolean | ((prev: boolean) => boolean)) => {
+    setSidebarExpandedState(prev => {
+      const newValue = typeof value === 'function' ? value(prev) : value;
+      localStorage.setItem(STORAGE_KEYS.sidebarExpanded, String(newValue));
+      return newValue;
+    });
+  };
+
+  const setPagesListExpanded = (value: boolean | ((prev: boolean) => boolean)) => {
+    setPagesListExpandedState(prev => {
+      const newValue = typeof value === 'function' ? value(prev) : value;
+      localStorage.setItem(STORAGE_KEYS.pagesListExpanded, String(newValue));
+      return newValue;
+    });
+  };
+  const [expandedNotebooks, setExpandedNotebooks] = useState<Set<string>>(new Set());
+  const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [showBin, setShowBin] = useState(false);
+  
+  // Dialog states
+  const [showNewNotebookDialog, setShowNewNotebookDialog] = useState(false);
+  const [showNewSectionDialog, setShowNewSectionDialog] = useState(false);
+  const [showNewPageDialog, setShowNewPageDialog] = useState(false);
+  const [newItemName, setNewItemName] = useState("");
+  const [selectedColor, setSelectedColor] = useState(NOTEBOOK_COLORS[5]);
+  const [dialogNotebookId, setDialogNotebookId] = useState<string | null>(null);
+  
+  // Rename states
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renamingName, setRenamingName] = useState("");
+  
+  // Editor states
+  const [editorContent, setEditorContent] = useState("");
   const quillRef = useRef<ReactQuill | null>(null);
   const editorContentRef = useRef<string>("");
-  const selectedNoteIdRef = useRef<string | null>(null);
-  const showBinRef = useRef<boolean>(false);
+  const contentSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editorDirtyRef = useRef(false);
+  const activePageIdRef = useRef<string | null>(null);
+  const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
   const domSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Mobile states
+  const [mobileView, setMobileView] = useState<"list" | "editor">("list");
 
   useEffect(() => {
     editorContentRef.current = editorContent;
   }, [editorContent]);
 
-  useEffect(() => {
-    selectedNoteIdRef.current = selectedNoteId;
-  }, [selectedNoteId]);
-
-  useEffect(() => {
-    showBinRef.current = showBin;
-  }, [showBin]);
-
-  // If false, we intentionally avoid auto-selecting a replacement note.
-  // Used to keep the editor closed after deleting a note.
-  const allowAutoSelectRef = useRef(true);
-
-  const contentSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const editorDirtyRef = useRef(false);
-  const activeNoteIdRef = useRef<string | null>(null);
-  const pendingSaveRef = useRef<{ id: string; content: string } | null>(null);
-
+  // Subscribe to notebooks
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, "notes"), 
-      where("userId", "==", user.uid),
-      orderBy("updatedAt", "desc")
-    );
+    const q = query(collection(db, "notebooks"), where("userId", "==", user.uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const notesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Note));
-      setNotes(notesData);
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Notebook));
+      data.sort((a, b) => a.name.localeCompare(b.name));
+      setNotebooks(data);
+      // Auto-expand all notebooks on first load
+      if (data.length > 0 && expandedNotebooks.size === 0) {
+        setExpandedNotebooks(new Set(data.map(n => n.id)));
+      }
+    }, (error) => {
+      console.error("Error fetching notebooks:", error);
+      toast.error("Failed to load notebooks");
     });
     return () => unsubscribe();
   }, [user]);
 
-  // Derived state for the currently selected note
-  const selectedNote = notes.find((n) => n.id === selectedNoteId) || null;
-
-  const visibleNotes = notes.filter((n) => (showBin ? !!n.deletedAt : !n.deletedAt));
-
-  // Keep a local (controlled) copy of the editor content.
-  // This prevents rapid Firestore snapshot updates from resetting Quill DOM state mid-interaction (e.g. image resize drag).
+  // Subscribe to sections
   useEffect(() => {
-    const hasNoteChanged = activeNoteIdRef.current !== selectedNoteId;
-    if (hasNoteChanged) {
-      activeNoteIdRef.current = selectedNoteId;
+    if (!user) return;
+    const q = query(collection(db, "sections"), where("userId", "==", user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Section));
+      data.sort((a, b) => a.name.localeCompare(b.name));
+      setSections(data);
+    }, (error) => {
+      console.error("Error fetching sections:", error);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // Subscribe to pages
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, "pages"), where("userId", "==", user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Page));
+      data.sort((a, b) => {
+        const aTime = a.updatedAt?.toDate?.() || new Date(a.updatedAt);
+        const bTime = b.updatedAt?.toDate?.() || new Date(b.updatedAt);
+        return bTime.getTime() - aTime.getTime();
+      });
+      setPages(data);
+    }, (error) => {
+      console.error("Error fetching pages:", error);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  // Derived states
+  const selectedPage = useMemo(() => pages.find(p => p.id === selectedPageId) || null, [pages, selectedPageId]);
+  const selectedSection = useMemo(() => sections.find(s => s.id === selectedSectionId) || null, [sections, selectedSectionId]);
+  const selectedNotebook = useMemo(() => notebooks.find(n => n.id === selectedNotebookId) || null, [notebooks, selectedNotebookId]);
+
+  const visiblePages = useMemo(() => {
+    let filtered = pages.filter(p => showBin ? !!p.deletedAt : !p.deletedAt);
+    if (searchQuery) {
+      filtered = filtered.filter(p => 
+        p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.content.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    } else if (selectedSectionId && !showBin) {
+      filtered = filtered.filter(p => p.sectionId === selectedSectionId);
+    }
+    return filtered;
+  }, [pages, showBin, searchQuery, selectedSectionId]);
+
+  // Global search results - searches across notebooks, sections, and pages
+  const globalSearchResults = useMemo(() => {
+    if (!globalSearchQuery.trim()) return null;
+    
+    const query = globalSearchQuery.toLowerCase();
+    
+    const matchedNotebooks = notebooks.filter(n => 
+      n.name.toLowerCase().includes(query)
+    );
+    
+    const matchedSections = sections.filter(s => 
+      s.name.toLowerCase().includes(query)
+    );
+    
+    const matchedPages = pages.filter(p => 
+      !p.deletedAt && (
+        p.title.toLowerCase().includes(query) ||
+        p.content.toLowerCase().includes(query)
+      )
+    );
+    
+    const hasResults = matchedNotebooks.length > 0 || matchedSections.length > 0 || matchedPages.length > 0;
+    
+    return hasResults ? { notebooks: matchedNotebooks, sections: matchedSections, pages: matchedPages } : null;
+  }, [globalSearchQuery, notebooks, sections, pages]);
+
+  // Sync editor content with selected page
+  useEffect(() => {
+    const hasPageChanged = activePageIdRef.current !== selectedPageId;
+    if (hasPageChanged) {
+      activePageIdRef.current = selectedPageId;
       editorDirtyRef.current = false;
       pendingSaveRef.current = null;
       if (contentSaveTimerRef.current) {
@@ -262,592 +401,1542 @@ const Notes = () => {
       }
     }
 
-    if (!selectedNote) {
+    if (!selectedPage) {
       setEditorContent("");
       return;
     }
 
-    if (!editorDirtyRef.current || hasNoteChanged) {
-      setEditorContent(selectedNote.content || "");
+    if (!editorDirtyRef.current || hasPageChanged) {
+      setEditorContent(selectedPage.content || "");
     }
-  }, [selectedNoteId, selectedNote?.content]);
+  }, [selectedPageId, selectedPage?.content]);
 
-  // Initial selection logic
+  // Cleanup
   useEffect(() => {
-    if (visibleNotes.length === 0) {
-      setSelectedNoteId(null);
-      return;
-    }
+    return () => {
+      if (contentSaveTimerRef.current) clearTimeout(contentSaveTimerRef.current);
+      if (domSyncTimerRef.current) clearTimeout(domSyncTimerRef.current);
+    };
+  }, []);
 
-    const selectionIsVisible = selectedNoteId ? visibleNotes.some((n) => n.id === selectedNoteId) : false;
-    if (selectionIsVisible) return;
-
-    if (allowAutoSelectRef.current) {
-      setSelectedNoteId(visibleNotes[0].id);
-    } else {
-      setSelectedNoteId(null);
-    }
-  }, [visibleNotes, selectedNoteId]);
-
-  const createNote = async () => {
-    if (!user) return;
-    setShowBin(false);
-    const defaultCategory = categories[0]?.name || "General";
+  // CRUD Operations
+  const createNotebook = async (name: string, color: string) => {
+    if (!user || !name.trim()) return;
     try {
-      const newNoteRef = await addDoc(collection(db, "notes"), {
-        title: "Untitled Note",
-        content: "",
+      const docRef = await addDoc(collection(db, "notebooks"), {
+        name: name.trim(),
+        color,
+        userId: user.uid,
+        createdAt: new Date(),
         updatedAt: new Date(),
-        category: defaultCategory,
-        userId: user.uid
       });
-      // Select the newly created note by ID
-      setSelectedNoteId(newNoteRef.id);
-      if (isMobile) {
-        setShowEditorMobile(true);
-      }
+      setExpandedNotebooks(prev => new Set([...prev, docRef.id]));
+      toast.success("Notebook created");
     } catch (error) {
-      console.error("Error creating note:", error);
+      console.error("Error creating notebook:", error);
+      toast.error("Failed to create notebook");
     }
   };
 
-  const updateNote = async (id: string, data: Partial<Note>) => {
+  const createSection = async (name: string, notebookId: string) => {
+    if (!user || !name.trim() || !notebookId) return;
     try {
-      await updateDoc(doc(db, "notes", id), {
+      const docRef = await addDoc(collection(db, "sections"), {
+        name: name.trim(),
+        notebookId,
+        userId: user.uid,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      setSelectedSectionId(docRef.id);
+      setSelectedNotebookId(notebookId);
+      toast.success("Section created");
+    } catch (error) {
+      console.error("Error creating section:", error);
+      toast.error("Failed to create section");
+    }
+  };
+
+  const createPage = async (title: string, sectionId: string) => {
+    if (!user || !title.trim() || !sectionId) return;
+    try {
+      const docRef = await addDoc(collection(db, "pages"), {
+        title: title.trim(),
+        content: "",
+        sectionId,
+        userId: user.uid,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      setSelectedPageId(docRef.id);
+      if (isMobile) setMobileView("editor");
+      toast.success("Page created");
+    } catch (error) {
+      console.error("Error creating page:", error);
+      toast.error("Failed to create page");
+    }
+  };
+
+  const updatePage = async (id: string, data: Partial<Page>) => {
+    try {
+      await updateDoc(doc(db, "pages", id), {
         ...data,
         updatedAt: new Date()
       });
     } catch (error) {
-      console.error("Error updating note:", error);
+      console.error("Error updating page:", error);
     }
   };
 
-  const scheduleContentSave = useCallback(
-    (id: string, content: string) => {
-      editorDirtyRef.current = true;
-      pendingSaveRef.current = { id, content };
-      if (contentSaveTimerRef.current) {
-        clearTimeout(contentSaveTimerRef.current);
-      }
-      contentSaveTimerRef.current = setTimeout(async () => {
-        contentSaveTimerRef.current = null;
-        const pending = pendingSaveRef.current;
-        if (!pending || pending.id !== id) return;
-        await updateNote(pending.id, { content: pending.content });
-        editorDirtyRef.current = false;
-        pendingSaveRef.current = null;
-      }, 600);
-    },
-    []
-  );
-
-  // Quill image resize updates DOM styles but may not emit a "text-change",
-  // so ReactQuill's onChange won't fire. Observe DOM mutations to persist width/height.
-  useEffect(() => {
-    const noteId = selectedNoteId;
-    if (!noteId) return;
-    if (showBin) return;
-
-    const quill = (quillRef.current as any)?.getEditor?.();
-    const root = quill?.root as HTMLElement | undefined;
-    if (!root) return;
-
-    const observer = new MutationObserver((mutations) => {
-      const currentId = selectedNoteIdRef.current;
-      if (!currentId) return;
-      if (showBinRef.current) return;
-
-      let relevant = false;
-      for (const m of mutations) {
-        if (m.type !== "attributes") continue;
-        const target = m.target as HTMLElement;
-        if (target.tagName !== "IMG") continue;
-        if (m.attributeName === "style" || m.attributeName === "width" || m.attributeName === "height") {
-          relevant = true;
-          break;
-        }
-      }
-      if (!relevant) return;
-
-      if (domSyncTimerRef.current) clearTimeout(domSyncTimerRef.current);
-      domSyncTimerRef.current = setTimeout(() => {
-        domSyncTimerRef.current = null;
-
-        const html = (quill.root as HTMLElement).innerHTML;
-        if (html === editorContentRef.current) return;
-
-        setEditorContent(html);
-        scheduleContentSave(currentId, html);
-      }, 300);
-    });
-
-    observer.observe(root, {
-      attributes: true,
-      subtree: true,
-      attributeFilter: ["style", "width", "height"],
-    });
-
-    return () => {
-      observer.disconnect();
-      if (domSyncTimerRef.current) {
-        clearTimeout(domSyncTimerRef.current);
-        domSyncTimerRef.current = null;
-      }
-    };
-  }, [selectedNoteId, showBin, scheduleContentSave]);
-
-  useEffect(() => {
-    return () => {
-      if (contentSaveTimerRef.current) {
-        clearTimeout(contentSaveTimerRef.current);
-        contentSaveTimerRef.current = null;
-      }
-    };
+  const scheduleContentSave = useCallback((id: string, content: string) => {
+    editorDirtyRef.current = true;
+    pendingSaveRef.current = { id, content };
+    if (contentSaveTimerRef.current) clearTimeout(contentSaveTimerRef.current);
+    contentSaveTimerRef.current = setTimeout(async () => {
+      contentSaveTimerRef.current = null;
+      const pending = pendingSaveRef.current;
+      if (!pending || pending.id !== id) return;
+      await updatePage(pending.id, { content: pending.content });
+      editorDirtyRef.current = false;
+      pendingSaveRef.current = null;
+    }, 600);
   }, []);
 
-  const deleteNote = async (id: string) => {
+  const deletePage = async (id: string) => {
     try {
-      allowAutoSelectRef.current = false;
-      await updateDoc(doc(db, "notes", id), {
-        deletedAt: new Date(),
-      });
-
-      setSelectedNoteId(null);
-      if (isMobile) setShowEditorMobile(false);
-
-      toast("Note deleted", {
-        duration: 3000,
+      await updateDoc(doc(db, "pages", id), { deletedAt: new Date() });
+      if (selectedPageId === id) setSelectedPageId(null);
+      toast("Page deleted", {
         action: {
           label: "Undo",
-          onClick: async () => {
-            await restoreNote(id);
-            allowAutoSelectRef.current = true;
-            setShowBin(false);
-            setSelectedNoteId(id);
-            if (isMobile) setShowEditorMobile(true);
-          },
+          onClick: () => restorePage(id),
         },
       });
     } catch (error) {
-      console.error("Error deleting note:", error);
+      console.error("Error deleting page:", error);
     }
   };
 
-  const restoreNote = async (id: string) => {
+  const restorePage = async (id: string) => {
     try {
-      await updateDoc(doc(db, "notes", id), { deletedAt: null });
+      await updateDoc(doc(db, "pages", id), { deletedAt: null });
+      toast.success("Page restored");
     } catch (error) {
-      console.error("Error restoring note:", error);
+      console.error("Error restoring page:", error);
     }
   };
 
-  const deleteNoteForever = async (id: string) => {
+  const deletePageForever = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "notes", id));
-      if (selectedNoteId === id) setSelectedNoteId(null);
-      if (isMobile) setShowEditorMobile(false);
+      await deleteDoc(doc(db, "pages", id));
+      if (selectedPageId === id) setSelectedPageId(null);
     } catch (error) {
-      console.error("Error deleting note forever:", error);
+      console.error("Error deleting page:", error);
     }
   };
 
-  const filteredNotes = visibleNotes.filter(
-    (note) =>
-      note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      note.content.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const renameItem = async (type: "notebook" | "section" | "page", id: string, name: string) => {
+    if (!name.trim()) return;
+    try {
+      const collectionName = type === "notebook" ? "notebooks" : type === "section" ? "sections" : "pages";
+      const fieldName = type === "page" ? "title" : "name";
+      await updateDoc(doc(db, collectionName, id), {
+        [fieldName]: name.trim(),
+        updatedAt: new Date(),
+      });
+    } catch (error) {
+      console.error(`Error renaming ${type}:`, error);
+    }
+  };
 
-  return (
-    <DashboardLayout>
-      {/* Desktop Layout */}
-      {!isMobile ? (
-        <div className="flex h-[calc(100vh-2rem)] gap-4 animate-fade-in">
-          {/* Collapsible Sidebar */}
-          <div 
-            className={cn(
-              "flex flex-col gap-4 transition-all duration-300 ease-in-out",
-              sidebarCollapsed ? "w-0 opacity-0 overflow-hidden" : "w-80 opacity-100"
-            )}
+  const deleteNotebook = async (id: string) => {
+    try {
+      // Delete all sections and pages in this notebook
+      const notebookSections = sections.filter(s => s.notebookId === id);
+      for (const section of notebookSections) {
+        const sectionPages = pages.filter(p => p.sectionId === section.id);
+        for (const page of sectionPages) {
+          await deleteDoc(doc(db, "pages", page.id));
+        }
+        await deleteDoc(doc(db, "sections", section.id));
+      }
+      await deleteDoc(doc(db, "notebooks", id));
+      if (selectedNotebookId === id) {
+        setSelectedNotebookId(null);
+        setSelectedSectionId(null);
+        setSelectedPageId(null);
+      }
+      toast.success("Notebook deleted");
+    } catch (error) {
+      console.error("Error deleting notebook:", error);
+    }
+  };
+
+  const deleteSection = async (id: string) => {
+    try {
+      const sectionPages = pages.filter(p => p.sectionId === id);
+      for (const page of sectionPages) {
+        await deleteDoc(doc(db, "pages", page.id));
+      }
+      await deleteDoc(doc(db, "sections", id));
+      if (selectedSectionId === id) {
+        setSelectedSectionId(null);
+        setSelectedPageId(null);
+      }
+      toast.success("Section deleted");
+    } catch (error) {
+      console.error("Error deleting section:", error);
+    }
+  };
+
+  const toggleNotebook = (id: string) => {
+    setExpandedNotebooks(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const moveSectionToNotebook = async (sectionId: string, targetNotebookId: string) => {
+    try {
+      await updateDoc(doc(db, "sections", sectionId), {
+        notebookId: targetNotebookId,
+        updatedAt: new Date(),
+      });
+      if (selectedSectionId === sectionId) {
+        setSelectedNotebookId(targetNotebookId);
+      }
+      setExpandedNotebooks(prev => {
+        const next = new Set(prev);
+        next.add(targetNotebookId);
+        return next;
+      });
+      toast.success("Section moved");
+    } catch (error) {
+      console.error("Error moving section:", error);
+      toast.error("Failed to move section");
+    }
+  };
+
+  const movePageToSection = async (pageId: string, targetSectionId: string) => {
+    try {
+      await updateDoc(doc(db, "pages", pageId), {
+        sectionId: targetSectionId,
+        updatedAt: new Date(),
+      });
+      toast.success("Page moved");
+    } catch (error) {
+      console.error("Error moving page:", error);
+      toast.error("Failed to move page");
+    }
+  };
+
+  const handleSectionDragStart = (sectionId: string, fromNotebookId: string) => (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData(
+      "application/x-kriyaa-section",
+      JSON.stringify({ sectionId, fromNotebookId })
+    );
+    setDraggingSectionId(sectionId);
+  };
+
+  const handleSectionDragEnd = () => {
+    setDraggingSectionId(null);
+    setDragOverNotebookId(null);
+  };
+
+  const handlePageDragStart = (pageId: string, fromSectionId: string) => (e: React.DragEvent) => {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData(
+      "application/x-kriyaa-page",
+      JSON.stringify({ pageId, fromSectionId })
+    );
+    setDraggingPageId(pageId);
+  };
+
+  const handlePageDragEnd = () => {
+    setDraggingPageId(null);
+    setDragOverSectionId(null);
+  };
+
+  const handleNotebookDragOver = (notebookId: string) => (e: React.DragEvent) => {
+    // Allow drop
+    e.preventDefault();
+    setDragOverNotebookId(notebookId);
+  };
+
+  const handleNotebookDrop = (targetNotebookId: string) => async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverNotebookId(null);
+    setDraggingSectionId(null);
+
+    const raw =
+      e.dataTransfer.getData("application/x-kriyaa-section") ||
+      e.dataTransfer.getData("text/plain");
+    if (!raw) return;
+
+    try {
+      const parsed = JSON.parse(raw) as { sectionId?: string; fromNotebookId?: string };
+      if (!parsed.sectionId) return;
+      if (parsed.fromNotebookId === targetNotebookId) return;
+      await moveSectionToNotebook(parsed.sectionId, targetNotebookId);
+    } catch {
+      // Ignore drops that aren't our payload
+    }
+  };
+
+  const handleSectionDragOverForPage = (sectionId: string) => (e: React.DragEvent) => {
+    // Allow dropping pages onto sections
+    e.preventDefault();
+    setDragOverSectionId(sectionId);
+  };
+
+  const handleSectionDragLeaveForPage = (sectionId: string) => () => {
+    setDragOverSectionId(prev => (prev === sectionId ? null : prev));
+  };
+
+  const handleSectionDropForPage = (targetSectionId: string) => async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverSectionId(null);
+    setDraggingPageId(null);
+
+    const raw =
+      e.dataTransfer.getData("application/x-kriyaa-page") ||
+      e.dataTransfer.getData("text/plain");
+    if (!raw) return;
+
+    try {
+      const parsed = JSON.parse(raw) as { pageId?: string; fromSectionId?: string };
+      if (!parsed.pageId) return;
+      if (parsed.fromSectionId === targetSectionId) return;
+      await movePageToSection(parsed.pageId, targetSectionId);
+    } catch {
+      // Ignore drops that aren't our payload
+    }
+  };
+
+  const selectSection = (sectionId: string, notebookId: string) => {
+    setSelectedSectionId(sectionId);
+    setSelectedNotebookId(notebookId);
+    setSelectedPageId(null);
+    setShowBin(false);
+    setSearchQuery("");
+  };
+
+  const selectPage = (pageId: string) => {
+    setSelectedPageId(pageId);
+    if (isMobile) setMobileView("editor");
+  };
+
+  const isSidebarPinnedOpen = sidebarExpanded;
+  const isSidebarTemporarilyOpen = !sidebarExpanded && sidebarHovered;
+  const shouldShowExpanded = isSidebarPinnedOpen || isSidebarTemporarilyOpen;
+
+  const isPagesPinnedOpen = pagesListExpanded;
+  const isPagesTemporarilyOpen = !pagesListExpanded && pagesListHovered;
+  const shouldShowPagesList = isPagesPinnedOpen || isPagesTemporarilyOpen;
+
+  // Render notebook tree item
+  const renderNotebook = (notebook: Notebook) => {
+    const isExpanded = expandedNotebooks.has(notebook.id);
+    const notebookSections = sections.filter(s => s.notebookId === notebook.id);
+    const isNotebookSelected = selectedNotebookId === notebook.id && !selectedSectionId;
+
+    return (
+      <div
+        key={notebook.id}
+        className={cn(
+          "group",
+          dragOverNotebookId === notebook.id && "rounded-md outline outline-2 outline-primary/30"
+        )}
+        onDragOver={handleNotebookDragOver(notebook.id)}
+        onDrop={handleNotebookDrop(notebook.id)}
+      >
+        <div 
+          className={cn(
+            "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-opacity",
+            isNotebookSelected ? "ring-1 ring-primary/20" : "hover:opacity-90"
+          )}
+          style={{ backgroundColor: hexToRgba(notebook.color, isNotebookSelected ? 0.18 : 0.10) }}
+        >
+          <button
+            onClick={() => toggleNotebook(notebook.id)}
+            className="p-0.5 hover:bg-accent rounded shrink-0"
           >
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-semibold text-foreground truncate">Notes</h1>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant={showBin ? "outline" : "ghost"}
-                  size="sm"
-                  className="h-9 rounded-full border border-border/40 px-3"
-                  onClick={() => {
-                    allowAutoSelectRef.current = true;
-                    setSelectedNoteId(null);
-                    setShowBin((v) => !v);
+            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+          <div 
+            className="flex items-center gap-2 flex-1 min-w-0"
+            onClick={() => {
+              setSelectedNotebookId(notebook.id);
+              setSelectedSectionId(null);
+              if (!isExpanded) toggleNotebook(notebook.id);
+            }}
+          >
+            <Book className="h-4 w-4 shrink-0" style={{ color: notebook.color }} />
+            {shouldShowExpanded && (
+              renamingId === notebook.id ? (
+                <Input
+                  autoFocus
+                  value={renamingName}
+                  onChange={(e) => setRenamingName(e.target.value)}
+                  onBlur={() => { renameItem("notebook", notebook.id, renamingName); setRenamingId(null); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { renameItem("notebook", notebook.id, renamingName); setRenamingId(null); }
+                    if (e.key === "Escape") setRenamingId(null);
                   }}
-                  title="Bin"
-                >
-                  Bin
+                  className="h-6 text-sm py-0"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span className="truncate text-sm font-medium">{notebook.name}</span>
+              )
+            )}
+          </div>
+          {shouldShowExpanded && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDialogNotebookId(notebook.id);
+                      setNewItemName("");
+                      setShowNewSectionDialog(true);
+                      if (!expandedNotebooks.has(notebook.id)) toggleNotebook(notebook.id);
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Add Section</TooltipContent>
+              </Tooltip>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { setRenamingId(notebook.id); setRenamingName(notebook.name); }}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => deleteNotebook(notebook.id)} className="text-destructive">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          )}
+        </div>
+
+        {/* Sections */}
+        {isExpanded && shouldShowExpanded && (
+          <div className="ml-4 mt-1 space-y-0.5">
+            {notebookSections.map((section) => (
+              <div
+                key={section.id}
+                className={cn(
+                  "group/section flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors",
+                  selectedSectionId === section.id ? "bg-primary/10 text-primary" : "hover:bg-accent/50",
+                  dragOverSectionId === section.id && "bg-primary/10 ring-1 ring-primary/20"
+                )}
+                onClick={() => selectSection(section.id, notebook.id)}
+                draggable
+                onDragStart={handleSectionDragStart(section.id, notebook.id)}
+                onDragEnd={handleSectionDragEnd}
+                onDragOver={handleSectionDragOverForPage(section.id)}
+                onDragLeave={handleSectionDragLeaveForPage(section.id)}
+                onDrop={handleSectionDropForPage(section.id)}
+                style={{ opacity: draggingSectionId === section.id ? 0.6 : 1 }}
+                title="Drag section to another notebook. Drop pages here to move to this section."
+              >
+                <GripVertical className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover/section:opacity-100 shrink-0" />
+                <FolderOpen className="h-4 w-4 shrink-0" style={{ color: notebook.color }} />
+                {renamingId === section.id ? (
+                  <Input
+                    autoFocus
+                    value={renamingName}
+                    onChange={(e) => setRenamingName(e.target.value)}
+                    onBlur={() => { renameItem("section", section.id, renamingName); setRenamingId(null); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { renameItem("section", section.id, renamingName); setRenamingId(null); }
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                    className="h-6 text-sm py-0 flex-1"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span className="truncate text-sm flex-1">{section.name}</span>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 opacity-0 group-hover/section:opacity-100 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => { setRenamingId(section.id); setRenamingName(section.name); }}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => deleteSection(section.id)} className="text-destructive">
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            ))}
+            {notebookSections.length === 0 && (
+              <p className="text-xs text-muted-foreground px-2 py-1 italic">No sections yet</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Desktop Layout
+  if (!isMobile) {
+    return (
+      <DashboardLayout>
+        <TooltipProvider>
+          <div className="flex h-[calc(100vh-2rem)] gap-0 animate-fade-in">
+            {/* Sidebar */}
+            <div
+              className={cn(
+                "flex flex-col border-r border-border bg-card/50 transition-all duration-300 ease-in-out shrink-0",
+                shouldShowExpanded ? "w-64" : "w-12"
+              )}
+              onMouseEnter={() => !sidebarExpanded && setSidebarHovered(true)}
+              onMouseLeave={() => setSidebarHovered(false)}
+            >
+              {/* Sidebar Header */}
+              <div className={cn(
+                "flex flex-col border-b border-border p-2 gap-2",
+                shouldShowExpanded ? "" : "items-center"
+              )}>
+                {shouldShowExpanded ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-semibold text-sm">Notebooks</h2>
+                      <div className="flex items-center gap-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => setShowNewNotebookDialog(true)}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>New Notebook</TooltipContent>
+                        </Tooltip>
+                        {isSidebarPinnedOpen ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setSidebarExpanded(false)}
+                              >
+                                <PanelLeftClose className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Collapse Panel</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setSidebarExpanded(true)}
+                              >
+                                <PanelLeft className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Pin Panel Open</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                    {/* Global Search */}
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search all notes..."
+                        value={globalSearchQuery}
+                        onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                        className="pl-8 h-8 text-sm"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setSidebarExpanded(true)}
+                      >
+                        <PanelLeft className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">Expand Notebooks</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+
+              {/* Notebooks Tree / Global Search Results */}
+              <ScrollArea className="flex-1 p-2">
+                {shouldShowExpanded ? (
+                  globalSearchQuery.trim() ? (
+                    // Global search results
+                    <div className="space-y-4">
+                      {globalSearchResults ? (
+                        <>
+                          {/* Notebooks section */}
+                          {globalSearchResults.notebooks.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
+                                Notebooks ({globalSearchResults.notebooks.length})
+                              </h4>
+                              <div className="space-y-1">
+                                {globalSearchResults.notebooks.map((notebook) => (
+                                    <div
+                                      key={notebook.id}
+                                      className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:opacity-90"
+                                      style={{ backgroundColor: hexToRgba(notebook.color, 0.10) }}
+                                    onClick={() => {
+                                      setSelectedNotebookId(notebook.id);
+                                      setGlobalSearchQuery("");
+                                      if (!expandedNotebooks.has(notebook.id)) toggleNotebook(notebook.id);
+                                    }}
+                                  >
+                                    <Book className="h-4 w-4 shrink-0" style={{ color: notebook.color }} />
+                                    <span className="truncate text-sm">{notebook.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Sections section */}
+                          {globalSearchResults.sections.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
+                                Sections ({globalSearchResults.sections.length})
+                              </h4>
+                              <div className="space-y-1">
+                                {globalSearchResults.sections.map((section) => {
+                                  const parentNotebook = notebooks.find(n => n.id === section.notebookId);
+                                  return (
+                                    <div
+                                      key={section.id}
+                                      className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-accent/50"
+                                      onClick={() => {
+                                        selectSection(section.id, section.notebookId);
+                                        setGlobalSearchQuery("");
+                                      }}
+                                    >
+                                      <FolderOpen className="h-4 w-4 shrink-0" style={{ color: parentNotebook?.color }} />
+                                      <div className="min-w-0 flex-1">
+                                        <span className="truncate text-sm block">{section.name}</span>
+                                        {parentNotebook && (
+                                          <span className="text-xs text-muted-foreground truncate block">{parentNotebook.name}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Pages section */}
+                          {globalSearchResults.pages.length > 0 && (
+                            <div>
+                              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
+                                Pages ({globalSearchResults.pages.length})
+                              </h4>
+                              <div className="space-y-1">
+                                {globalSearchResults.pages.map((page) => {
+                                  const parentSection = sections.find(s => s.id === page.sectionId);
+                                  const parentNotebook = parentSection ? notebooks.find(n => n.id === parentSection.notebookId) : null;
+                                  return (
+                                    <div
+                                      key={page.id}
+                                      className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer hover:bg-accent/50"
+                                      onClick={() => {
+                                        if (parentSection) {
+                                          selectSection(parentSection.id, parentSection.notebookId);
+                                        }
+                                        selectPage(page.id);
+                                        setGlobalSearchQuery("");
+                                      }}
+                                    >
+                                      <File className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                      <div className="min-w-0 flex-1">
+                                        <span className="truncate text-sm block">{page.title}</span>
+                                        <span className="text-xs text-muted-foreground truncate block">
+                                          {parentNotebook?.name}{parentSection ? ` / ${parentSection.name}` : ''}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-center py-8">
+                          <Search className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                          <p className="text-sm text-muted-foreground">No results found</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    // Normal notebook tree
+                    <div className="space-y-1">
+                      {notebooks.map(renderNotebook)}
+                      {notebooks.length === 0 && (
+                        <div className="text-center py-8">
+                          <Book className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                          <p className="text-sm text-muted-foreground">No notebooks yet</p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2"
+                            onClick={() => setShowNewNotebookDialog(true)}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Create Notebook
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                ) : (
+                  <div className="space-y-1">
+                    {notebooks.map((notebook) => (
+                      <Tooltip key={notebook.id}>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant={selectedNotebookId === notebook.id ? "secondary" : "ghost"}
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              setSelectedNotebookId(notebook.id);
+                              setSidebarExpanded(true);
+                              if (!expandedNotebooks.has(notebook.id)) toggleNotebook(notebook.id);
+                            }}
+                          >
+                            <Book className="h-4 w-4" style={{ color: notebook.color }} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">{notebook.name}</TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+
+              {/* Sidebar Footer */}
+              {shouldShowExpanded && (
+                <div className="border-t border-border p-2">
+                  <Button
+                    variant={showBin ? "secondary" : "ghost"}
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => {
+                      setShowBin(!showBin);
+                      setSelectedSectionId(null);
+                      setSelectedPageId(null);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Deleted Pages
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Pages List */}
+            <div 
+              className={cn(
+                "flex flex-col border-r border-border bg-background shrink-0 transition-all duration-300 ease-in-out",
+                shouldShowPagesList ? "w-72" : "w-12"
+              )}
+              onMouseEnter={() => !pagesListExpanded && setPagesListHovered(true)}
+              onMouseLeave={() => setPagesListHovered(false)}
+            >
+              <div className={cn(
+                "border-b border-border",
+                shouldShowPagesList ? "p-3 space-y-2" : "p-2"
+              )}>
+                {shouldShowPagesList ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-medium text-sm truncate">
+                        {showBin ? "Deleted Pages" : selectedSection?.name || "Select a section"}
+                      </h3>
+                      <div className="flex items-center gap-1">
+                        {selectedSectionId && !showBin && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7"
+                                onClick={() => {
+                                  setNewItemName("");
+                                  setShowNewPageDialog(true);
+                                }}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>New Page</TooltipContent>
+                          </Tooltip>
+                        )}
+                        {isPagesPinnedOpen ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setPagesListExpanded(false)}
+                              >
+                                <PanelRightClose className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Collapse Panel</TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setPagesListExpanded(true)}
+                              >
+                                <PanelRight className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Pin Panel Open</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    </div>
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Search pages..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-8 h-8 text-sm"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => setPagesListExpanded(true)}
+                      >
+                        <PanelRight className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">Expand Pages</TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+              
+              <ScrollArea className="flex-1">
+                {shouldShowPagesList ? (
+                  <div className="p-2 space-y-1">
+                    {visiblePages.map((page) => (
+                      <div
+                        key={page.id}
+                        onClick={() => !showBin && selectPage(page.id)}
+                        className={cn(
+                          "p-2.5 rounded-md cursor-pointer transition-colors group",
+                          !showBin && "cursor-grab active:cursor-grabbing",
+                          draggingPageId === page.id && "opacity-60",
+                          selectedPageId === page.id
+                            ? "bg-primary/10 border border-primary/20"
+                            : "hover:bg-accent border border-transparent"
+                        )}
+                        draggable={!showBin}
+                        onDragStart={handlePageDragStart(page.id, page.sectionId)}
+                        onDragEnd={handlePageDragEnd}
+                        title={!showBin ? "Drag to move to another section" : undefined}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-medium text-sm truncate">{page.title}</h4>
+                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                              {getNotePreview(page.content)}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground mt-1">
+                              {page.updatedAt?.toDate ? 
+                                page.updatedAt.toDate().toLocaleDateString() : 
+                                new Date(page.updatedAt).toLocaleDateString()
+                              }
+                            </p>
+                          </div>
+                          {showBin ? (
+                            <div className="flex gap-1 shrink-0">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={(e) => { e.stopPropagation(); restorePage(page.id); }}
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-destructive"
+                                onClick={(e) => { e.stopPropagation(); deletePageForever(page.id); }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 opacity-0 group-hover:opacity-100 shrink-0"
+                              onClick={(e) => { e.stopPropagation(); deletePage(page.id); }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {visiblePages.length === 0 && (
+                      <div className="text-center py-8">
+                        <File className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                        <p className="text-sm text-muted-foreground">
+                          {showBin ? "No deleted pages" : searchQuery ? "No pages found" : "No pages yet"}
+                        </p>
+                        {selectedSectionId && !showBin && !searchQuery && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2"
+                            onClick={() => setShowNewPageDialog(true)}
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Create Page
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-2 space-y-1">
+                    {visiblePages.map((page) => (
+                      <Tooltip key={page.id}>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant={selectedPageId === page.id ? "secondary" : "ghost"}
+                            size="icon"
+                            className={cn(
+                              "h-8 w-8",
+                              !showBin && "cursor-grab active:cursor-grabbing",
+                              draggingPageId === page.id && "opacity-60"
+                            )}
+                            onClick={() => !showBin && selectPage(page.id)}
+                            draggable={!showBin}
+                            onDragStart={handlePageDragStart(page.id, page.sectionId)}
+                            onDragEnd={handlePageDragEnd}
+                          >
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">{page.title}</TooltipContent>
+                      </Tooltip>
+                    ))}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+
+            {/* Editor */}
+            <div className="flex-1 flex flex-col bg-background min-w-0">
+              {selectedPage && !showBin ? (
+                <>
+                  <div className="flex items-center gap-3 p-3 border-b border-border bg-muted/30">
+                    <Input
+                      value={selectedPage.title}
+                      onChange={(e) => updatePage(selectedPage.id, { title: e.target.value })}
+                      className="border-none bg-transparent text-lg font-semibold focus-visible:ring-0 px-0 h-auto"
+                      placeholder="Page title..."
+                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-muted-foreground flex items-center gap-1 bg-background px-2 py-1 rounded">
+                        <Clock className="h-3 w-3" />
+                        {selectedPage.updatedAt?.toDate ? 
+                          selectedPage.updatedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 
+                          new Date(selectedPage.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                        }
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => deletePage(selectedPage.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-auto kriyaa-quill-editor">
+                    <ReactQuill
+                      key={selectedPage.id}
+                      theme="snow"
+                      ref={quillRef as any}
+                      value={editorContent}
+                      onChange={(content) => {
+                        setEditorContent(content);
+                        scheduleContentSave(selectedPage.id, content);
+                      }}
+                      modules={quillModules}
+                      formats={quillFormats}
+                      className="h-full"
+                      placeholder="Start writing..."
+                    />
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border px-4 py-1 bg-muted/10 text-[11px] text-muted-foreground">
+                    <span>{getWordCount(editorContent)} words</span>
+                    <span className="opacity-60">⌘+Shift+&gt; / &lt; to resize text</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+                  <FileText className="mb-4 h-16 w-16 opacity-10" />
+                  <p className="text-lg font-medium">
+                    {showBin ? "Select a page to preview" : "Select a page to start editing"}
+                  </p>
+                  <p className="text-sm mt-1">
+                    {!selectedSectionId && !showBin && "Choose a section from the sidebar first"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Dialogs */}
+          <Dialog open={showNewNotebookDialog} onOpenChange={setShowNewNotebookDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Notebook</DialogTitle>
+                <DialogDescription>
+                  Notebooks contain sections, which contain pages.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Input
+                  placeholder="Notebook name"
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newItemName.trim()) {
+                      createNotebook(newItemName, selectedColor);
+                      setNewItemName("");
+                      setShowNewNotebookDialog(false);
+                    }
+                  }}
+                  autoFocus
+                />
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Color</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {NOTEBOOK_COLORS.map((color) => (
+                      <button
+                        key={color}
+                        className={cn(
+                          "w-8 h-8 rounded-full transition-all",
+                          selectedColor === color ? "ring-2 ring-offset-2 ring-primary" : "hover:scale-110"
+                        )}
+                        style={{ backgroundColor: color }}
+                        onClick={() => setSelectedColor(color)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowNewNotebookDialog(false); setNewItemName(""); }}>
+                  Cancel
                 </Button>
                 <Button
-                  onClick={createNote}
+                  onClick={() => {
+                    createNotebook(newItemName, selectedColor);
+                    setNewItemName("");
+                    setShowNewNotebookDialog(false);
+                  }}
+                  disabled={!newItemName.trim()}
+                >
+                  Create
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showNewSectionDialog} onOpenChange={setShowNewSectionDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Section</DialogTitle>
+                <DialogDescription>
+                  Sections organize your pages within a notebook.
+                </DialogDescription>
+              </DialogHeader>
+              <Input
+                placeholder="Section name"
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newItemName.trim() && dialogNotebookId) {
+                    createSection(newItemName, dialogNotebookId);
+                    setNewItemName("");
+                    setShowNewSectionDialog(false);
+                  }
+                }}
+                autoFocus
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowNewSectionDialog(false); setNewItemName(""); }}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (dialogNotebookId) {
+                      createSection(newItemName, dialogNotebookId);
+                      setNewItemName("");
+                      setShowNewSectionDialog(false);
+                    }
+                  }}
+                  disabled={!newItemName.trim()}
+                >
+                  Create
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showNewPageDialog} onOpenChange={setShowNewPageDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Page</DialogTitle>
+              </DialogHeader>
+              <Input
+                placeholder="Page title"
+                value={newItemName}
+                onChange={(e) => setNewItemName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newItemName.trim() && selectedSectionId) {
+                    createPage(newItemName, selectedSectionId);
+                    setNewItemName("");
+                    setShowNewPageDialog(false);
+                  }
+                }}
+                autoFocus
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowNewPageDialog(false); setNewItemName(""); }}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (selectedSectionId) {
+                      createPage(newItemName, selectedSectionId);
+                      setNewItemName("");
+                      setShowNewPageDialog(false);
+                    }
+                  }}
+                  disabled={!newItemName.trim()}
+                >
+                  Create
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TooltipProvider>
+      </DashboardLayout>
+    );
+  }
+
+  // Mobile Layout
+  return (
+    <DashboardLayout>
+      <div className="h-[calc(100vh-2rem)] animate-fade-in flex flex-col">
+        {mobileView === "list" ? (
+          <>
+            {/* Mobile Header */}
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h1 className="text-xl font-semibold">Notes</h1>
+              <div className="flex gap-2">
+                <Button
+                  variant={showBin ? "secondary" : "ghost"}
                   size="icon"
-                  className="h-9 w-9 rounded-full border border-border/40 shadow-sm hover:shadow-md transition-shadow"
-                  title="New note"
+                  onClick={() => setShowBin(!showBin)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  onClick={() => setShowNewNotebookDialog(true)}
                 >
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search notes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-2 pr-2 scrollbar-thin">
-              {filteredNotes.map((note) => (
-                <div
-                  key={note.id}
-                  onClick={() => {
-                    allowAutoSelectRef.current = true;
-                    setSelectedNoteId(note.id);
-                    setSidebarCollapsed(true);
-                  }}
-                  className={cn(
-                    "cursor-pointer rounded-lg border p-4 transition-all duration-200 hover:shadow-md active:scale-[0.98]",
-                    selectedNoteId === note.id
-                      ? "border-primary bg-primary/5 shadow-sm"
-                      : "border-border bg-card hover:bg-accent/30"
-                  )}
-                >
-                  <h3 className={cn(
-                    "font-semibold truncate transition-colors",
-                    selectedNoteId === note.id ? "text-primary" : "text-foreground"
-                  )}>{note.title}</h3>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{getNotePreview(note.content)}</p>
-                  <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : new Date(note.updatedAt).toLocaleDateString()}</span>
-                    <span className="rounded-full bg-secondary px-2 py-0.5 font-medium">
-                      {note.category}
-                    </span>
-                  </div>
-                  {showBin ? (
-                    <div className="mt-3 flex items-center justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          restoreNote(note.id);
-                        }}
-                      >
-                        <RotateCcw className="mr-2 h-4 w-4" />
-                        Restore
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          deleteNoteForever(note.id);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Editor Area */}
-          <div className="flex flex-1 flex-col rounded-xl border border-border bg-card shadow-md">
-            {selectedNote ? (
-              <>
-                <div className="flex items-center justify-between border-b border-border p-4 bg-muted/20">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                      className="shrink-0 hover:bg-primary/10"
-                      title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-                    >
-                      {sidebarCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-                    </Button>
-                    <Input
-                      value={selectedNote.title}
-                      onChange={(e) => {
-                        if (showBin) return;
-                        updateNote(selectedNote.id, { title: e.target.value });
-                      }}
-                      readOnly={showBin}
-                      className="border-none bg-transparent text-xl font-semibold focus-visible:ring-0 px-0"
-                    />
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <Select
-                      value={selectedNote.category}
-                      onValueChange={(value) => {
-                        if (showBin) return;
-                        updateNote(selectedNote.id, { category: value });
-                      }}
-                      disabled={showBin}
-                    >
-                      <SelectTrigger className="w-[140px] h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categories.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.name}>
-                            {cat.icon} {cat.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <span className="text-xs text-muted-foreground flex items-center gap-1 bg-background/80 px-2 py-1 rounded-md">
-                      <Clock className="h-3 w-3" />
-                      {selectedNote.updatedAt?.toDate ? selectedNote.updatedAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date(selectedNote.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        if (showBin) {
-                          deleteNoteForever(selectedNote.id);
-                        } else {
-                          deleteNote(selectedNote.id);
-                        }
-                      }}
-                      className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                    {showBin ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => restoreNote(selectedNote.id)}
-                        className="h-8"
-                      >
-                        <RotateCcw className="mr-2 h-4 w-4" />
-                        Restore
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                <div className="flex-1 overflow-auto kriyaa-quill-editor">
-                  <ReactQuill 
-                    key={selectedNote.id}
-                    theme="snow" 
-                    ref={quillRef as any}
-                    value={editorContent}
-                    onChange={(content) => {
-                      setEditorContent(content);
-                      if (!showBin) scheduleContentSave(selectedNote.id, content);
-                    }}
-                    modules={quillModules}
-                    formats={quillFormats}
-                    className="h-full"
-                    placeholder="Start writing your note..."
-                    readOnly={showBin}
-                  />
-                </div>
-                <div className="flex items-center justify-between border-t border-border px-4 py-1.5 bg-muted/10 text-[11px] text-muted-foreground shrink-0">
-                  <span>{getWordCount(editorContent)} words</span>
-                  <span className="hidden sm:inline opacity-60">⌘+Shift+&gt; / &lt; to resize text</span>
-                </div>
-              </>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                  className="absolute top-4 left-4 hover:bg-primary/10"
-                  title={sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
-                >
-                  {sidebarCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-                </Button>
-                <FileText className="mb-4 h-16 w-16 opacity-10" />
-                <p className="text-lg font-medium">Select a note to start editing</p>
-                <p className="text-sm mt-1">or create a new one</p>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        // Mobile Layout
-        <div className="h-[calc(100vh-2rem)] animate-fade-in">
-          {/* Show list or editor based on state */}
-          {!showEditorMobile ? (
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-semibold text-foreground">Notes</h1>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant={showBin ? "outline" : "ghost"}
-                    size="sm"
-                    className="h-8 rounded-full border border-border/40 px-3"
-                    onClick={() => {
-                      allowAutoSelectRef.current = true;
-                      setSelectedNoteId(null);
-                      setShowBin((v) => !v);
-                    }}
-                    title="Bin"
-                  >
-                    Bin
-                  </Button>
-                  <Button
-                    onClick={createNote}
-                    size="icon"
-                    className="h-8 w-8 rounded-full border border-border/40"
-                    title="New note"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
+            {/* Search */}
+            <div className="p-4 pb-2">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search notes..."
+                  placeholder="Search pages..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9"
                 />
               </div>
-              <div className="flex-1 overflow-y-auto space-y-2 pr-2">
-                {filteredNotes.map((note) => (
-                  <div
-                    key={note.id}
-                    onClick={() => {
-                      allowAutoSelectRef.current = true;
-                      setSelectedNoteId(note.id);
-                      setShowEditorMobile(true);
-                    }}
-                    className={cn(
-                      "cursor-pointer rounded-lg border p-4 transition-all hover:bg-accent/50",
-                      selectedNoteId === note.id
-                        ? "border-primary bg-accent"
-                        : "border-border bg-card"
-                    )}
-                  >
-                    <h3 className="font-medium text-foreground">{note.title}</h3>
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{getNotePreview(note.content)}</p>
-                    <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{note.updatedAt?.toDate ? note.updatedAt.toDate().toLocaleDateString() : new Date(note.updatedAt).toLocaleDateString()}</span>
-                      <span className="rounded-full bg-secondary px-2 py-0.5">
-                        {note.category}
-                      </span>
-                    </div>
-                    {showBin ? (
-                      <div className="mt-3 flex items-center justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            restoreNote(note.id);
-                          }}
-                        >
-                          <RotateCcw className="mr-2 h-4 w-4" />
-                          Restore
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            deleteNoteForever(note.id);
-                          }}
-                        >
-                          Delete
-                        </Button>
+            </div>
+
+            {/* Content */}
+            <ScrollArea className="flex-1 px-4">
+              {showBin ? (
+                // Bin view
+                <div className="space-y-2 pb-4">
+                  {visiblePages.map((page) => (
+                    <div key={page.id} className="p-3 rounded-lg border bg-card">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <h4 className="font-medium">{page.title}</h4>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{getNotePreview(page.content)}</p>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button size="icon" variant="ghost" onClick={() => restorePage(page.id)}>
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="text-destructive" onClick={() => deletePageForever(page.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex flex-col h-full">
-              <div className="flex flex-col gap-2 border-b border-border p-4">
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" onClick={() => setShowEditorMobile(false)}>
-                    {/* Simple back arrow */}
-                    <svg width="20" height="20" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
-                  </Button>
-                  <Input
-                    value={selectedNote?.title || ""}
-                    onChange={(e) => {
-                      if (!selectedNote) return;
-                      if (showBin) return;
-                      updateNote(selectedNote.id, { title: e.target.value });
-                    }}
-                    readOnly={showBin}
-                    className="border-none bg-transparent text-xl font-semibold focus-visible:ring-0 px-0"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      if (!selectedNote) return;
-                      if (showBin) {
-                        deleteNoteForever(selectedNote.id);
-                      } else {
-                        deleteNote(selectedNote.id);
-                      }
-                    }}
-                    className="text-destructive hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                    </div>
+                  ))}
+                  {visiblePages.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No deleted pages</p>
+                  )}
                 </div>
-                {selectedNote && (
-                  <span className="flex items-center gap-1 rounded-full bg-secondary/80 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm w-fit mt-1">
-                    <Clock className="h-4 w-4 text-primary/70" />
-                    <span className="font-semibold text-foreground">
-                      {(() => {
-                        const d = selectedNote.updatedAt?.toDate ? selectedNote.updatedAt.toDate() : new Date(selectedNote.updatedAt);
-                        const day = d.getDate().toString().padStart(2, '0');
-                        const month = d.toLocaleString('default', { month: 'short' });
-                        let hours = d.getHours();
-                        const minutes = d.getMinutes().toString().padStart(2, '0');
-                        const ampm = hours >= 12 ? 'PM' : 'AM';
-                        hours = hours % 12;
-                        hours = hours ? hours : 12;
-                        return `Last Edited: ${day} ${month} ${hours}:${minutes} ${ampm}`;
-                      })()}
-                    </span>
-                  </span>
-                )}
-              </div>
-              <div className="flex-1 p-4">
-                <ReactQuill
-                  key={selectedNote?.id}
-                  theme="snow"
-                  ref={quillRef as any}
-                  value={editorContent}
-                  onChange={(content) => {
-                    setEditorContent(content);
-                    if (selectedNote && !showBin) scheduleContentSave(selectedNote.id, content);
-                  }}
-                  modules={quillModules}
-                  formats={quillFormats}
-                  className="h-full"
-                  readOnly={showBin}
-                />
-              </div>
+              ) : searchQuery ? (
+                // Search results
+                <div className="space-y-2 pb-4">
+                  {visiblePages.map((page) => (
+                    <div 
+                      key={page.id} 
+                      className="p-3 rounded-lg border bg-card cursor-pointer hover:bg-accent"
+                      onClick={() => selectPage(page.id)}
+                    >
+                      <h4 className="font-medium">{page.title}</h4>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{getNotePreview(page.content)}</p>
+                    </div>
+                  ))}
+                  {visiblePages.length === 0 && (
+                    <p className="text-center text-muted-foreground py-8">No pages found</p>
+                  )}
+                </div>
+              ) : (
+                // Notebook tree
+                <div className="space-y-4 pb-4">
+                  {notebooks.map((notebook) => {
+                    const notebookSections = sections.filter(s => s.notebookId === notebook.id);
+                    const isExpanded = expandedNotebooks.has(notebook.id);
+                    
+                    return (
+                      <div key={notebook.id} className="rounded-lg border bg-card overflow-hidden">
+                        <div 
+                          className="flex items-center gap-2 p-3 cursor-pointer"
+                          onClick={() => toggleNotebook(notebook.id)}
+                        >
+                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          <Book className="h-5 w-5" style={{ color: notebook.color }} />
+                          <span className="font-medium flex-1">{notebook.name}</span>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8"
+                            onClick={(e) => { e.stopPropagation(); setDialogNotebookId(notebook.id); setShowNewSectionDialog(true); }}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        
+                        {isExpanded && (
+                          <div className="border-t">
+                            {notebookSections.map((section) => {
+                              const sectionPages = pages.filter(p => p.sectionId === section.id && !p.deletedAt);
+                              const isSectionExpanded = selectedSectionId === section.id;
+                              
+                              return (
+                                <div key={section.id}>
+                                  <div 
+                                    className={cn(
+                                      "flex items-center gap-2 p-3 pl-8 cursor-pointer border-b last:border-0",
+                                      isSectionExpanded && "bg-accent"
+                                    )}
+                                    onClick={() => {
+                                      if (selectedSectionId === section.id) {
+                                        setSelectedSectionId(null);
+                                      } else {
+                                        selectSection(section.id, notebook.id);
+                                      }
+                                    }}
+                                  >
+                                    <FolderOpen className="h-4 w-4" style={{ color: notebook.color }} />
+                                    <span className="flex-1">{section.name}</span>
+                                    <span className="text-xs text-muted-foreground">{sectionPages.length}</span>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        setSelectedSectionId(section.id);
+                                        setShowNewPageDialog(true); 
+                                      }}
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                  
+                                  {isSectionExpanded && (
+                                    <div className="bg-muted/30">
+                                      {sectionPages.map((page) => (
+                                        <div
+                                          key={page.id}
+                                          className="flex items-center gap-2 p-2 pl-12 cursor-pointer hover:bg-accent border-b last:border-0"
+                                          onClick={() => selectPage(page.id)}
+                                        >
+                                          <File className="h-4 w-4 text-muted-foreground" />
+                                          <span className="text-sm truncate">{page.title}</span>
+                                        </div>
+                                      ))}
+                                      {sectionPages.length === 0 && (
+                                        <p className="text-sm text-muted-foreground p-2 pl-12 italic">No pages</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {notebookSections.length === 0 && (
+                              <p className="text-sm text-muted-foreground p-3 pl-8 italic">No sections</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {notebooks.length === 0 && (
+                    <div className="text-center py-8">
+                      <Book className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                      <p className="text-muted-foreground mb-3">No notebooks yet</p>
+                      <Button onClick={() => setShowNewNotebookDialog(true)}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Notebook
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </ScrollArea>
+          </>
+        ) : (
+          // Mobile Editor
+          <>
+            <div className="flex items-center gap-2 p-4 border-b border-border">
+              <Button variant="ghost" size="icon" onClick={() => setMobileView("list")}>
+                <ChevronRight className="h-5 w-5 rotate-180" />
+              </Button>
+              <Input
+                value={selectedPage?.title || ""}
+                onChange={(e) => selectedPage && updatePage(selectedPage.id, { title: e.target.value })}
+                className="border-none bg-transparent text-lg font-semibold focus-visible:ring-0 px-0"
+                placeholder="Page title..."
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive"
+                onClick={() => {
+                  if (selectedPage) {
+                    deletePage(selectedPage.id);
+                    setMobileView("list");
+                  }
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             </div>
-          )}
-        </div>
-      )}
+            <div className="flex-1 overflow-auto">
+              <ReactQuill
+                key={selectedPage?.id}
+                theme="snow"
+                ref={quillRef as any}
+                value={editorContent}
+                onChange={(content) => {
+                  setEditorContent(content);
+                  if (selectedPage) scheduleContentSave(selectedPage.id, content);
+                }}
+                modules={quillModules}
+                formats={quillFormats}
+                className="h-full"
+                placeholder="Start writing..."
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Mobile Dialogs */}
+      <Dialog open={showNewNotebookDialog} onOpenChange={setShowNewNotebookDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Notebook</DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Notebook name"
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
+            autoFocus
+          />
+          <div className="flex gap-2 flex-wrap">
+            {NOTEBOOK_COLORS.map((color) => (
+              <button
+                key={color}
+                className={cn(
+                  "w-8 h-8 rounded-full",
+                  selectedColor === color && "ring-2 ring-offset-2 ring-primary"
+                )}
+                style={{ backgroundColor: color }}
+                onClick={() => setSelectedColor(color)}
+              />
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewNotebookDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                createNotebook(newItemName, selectedColor);
+                setNewItemName("");
+                setShowNewNotebookDialog(false);
+              }}
+              disabled={!newItemName.trim()}
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showNewSectionDialog} onOpenChange={setShowNewSectionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Section</DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Section name"
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewSectionDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (dialogNotebookId) {
+                  createSection(newItemName, dialogNotebookId);
+                  setNewItemName("");
+                  setShowNewSectionDialog(false);
+                }
+              }}
+              disabled={!newItemName.trim()}
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showNewPageDialog} onOpenChange={setShowNewPageDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create New Page</DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Page title"
+            value={newItemName}
+            onChange={(e) => setNewItemName(e.target.value)}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewPageDialog(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (selectedSectionId) {
+                  createPage(newItemName, selectedSectionId);
+                  setNewItemName("");
+                  setShowNewPageDialog(false);
+                }
+              }}
+              disabled={!newItemName.trim()}
+            >
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 };

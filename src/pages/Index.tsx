@@ -375,6 +375,7 @@ const Index = () => {
             </div>
           ) : (
             <ResizablePanelGroup
+              key={`panel-group-${user?.uid}`}
               direction="horizontal"
               onLayout={(sizes) => {
                 if (!Array.isArray(sizes) || sizes.length !== 2) return;
@@ -382,7 +383,11 @@ const Index = () => {
               }}
               className="h-full"
             >
-              <ResizablePanel defaultSize={layout.panelSizes[0]} minSize={45}>
+              <ResizablePanel 
+                defaultSize={layout.panelSizes[0]} 
+                minSize={35}
+                id="left-panel"
+              >
                 <div className="space-y-6 pr-3">
                   <SortableContext items={layout.left} strategy={verticalListSortingStrategy}>
                     {layout.left.map((id) => (
@@ -392,7 +397,11 @@ const Index = () => {
                 </div>
               </ResizablePanel>
               <ResizableHandle withHandle />
-              <ResizablePanel defaultSize={layout.panelSizes[1]} minSize={25}>
+              <ResizablePanel 
+                defaultSize={layout.panelSizes[1]} 
+                minSize={20}
+                id="right-panel"
+              >
                 <div className="space-y-6 pl-3">
                   <SortableContext items={layout.right} strategy={verticalListSortingStrategy}>
                     {layout.right.map((id) => (

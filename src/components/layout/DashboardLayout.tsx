@@ -5,19 +5,36 @@ import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
+const SIDEBAR_COLLAPSED_KEY = "sidebar_collapsed";
+
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const isMobile = useIsMobile();
   const location = useLocation();
+  const { user } = useAuth();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(`${SIDEBAR_COLLAPSED_KEY}_${user?.uid}`);
+      return saved === "true";
+    }
+    return false;
+  });
 
   useEffect(() => {
     if (isMobile) setMobileSidebarOpen(false);
   }, [isMobile, location.pathname]);
+
+  useEffect(() => {
+    if (user?.uid) {
+      localStorage.setItem(`${SIDEBAR_COLLAPSED_KEY}_${user.uid}`, String(sidebarCollapsed));
+    }
+  }, [sidebarCollapsed, user?.uid]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -44,7 +61,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </>
       ) : (
         <div className="flex">
-          <Sidebar />
+          <Sidebar collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed} />
           <main className="flex-1">
             <div className="min-h-screen p-8">
               {children}

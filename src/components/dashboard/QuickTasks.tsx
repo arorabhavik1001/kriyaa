@@ -21,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Task } from "@/types";
-import { toast } from "sonner";
 import { useCategories } from "@/hooks/useCategories";
 import { TaskItem } from "./TaskItemWidget";
 
