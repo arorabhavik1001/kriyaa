@@ -1,7 +1,7 @@
 import { FileText, Plus } from "lucide-react";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/firebase";
-import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -35,14 +35,18 @@ export function RecentNotes() {
   useEffect(() => {
     if (!user) return;
     const q = query(
-      collection(db, "notes"),
-      where("userId", "==", user.uid),
-      orderBy("updatedAt", "desc")
+      collection(db, "pages"),
+      where("userId", "==", user.uid)
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const notesData = snapshot.docs
         .map((doc) => ({ id: doc.id, ...doc.data() } as Note))
-        .filter((n) => !n.deletedAt);
+        .filter((n) => !n.deletedAt)
+        .sort((a, b) => {
+          const aTime = a.updatedAt?.toDate?.() || new Date(a.updatedAt);
+          const bTime = b.updatedAt?.toDate?.() || new Date(b.updatedAt);
+          return bTime.getTime() - aTime.getTime();
+        });
       setRecentNotes(notesData.slice(0, 3));
     });
     return () => unsubscribe();

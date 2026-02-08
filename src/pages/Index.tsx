@@ -217,7 +217,7 @@ const Index = () => {
       where("userId", "==", user.uid),
       where("completed", "==", false),
     );
-    const notesQuery = query(collection(db, "notes"), where("userId", "==", user.uid));
+    const notesQuery = query(collection(db, "pages"), where("userId", "==", user.uid));
 
     const unsubTasks = onSnapshot(tasksQuery, (snap) => {
       const openRootTasks = snap.docs.reduce((count, d) => {
@@ -229,7 +229,11 @@ const Index = () => {
     });
 
     const unsubNotes = onSnapshot(notesQuery, (snap) => {
-      setStats(prev => ({ ...prev, notesCount: snap.size }));
+      const count = snap.docs.reduce((acc, d) => {
+        const data = d.data() as { deletedAt?: unknown };
+        return data.deletedAt ? acc : acc + 1;
+      }, 0);
+      setStats(prev => ({ ...prev, notesCount: count }));
     });
 
     return () => {
