@@ -419,27 +419,32 @@ export default function Schedule() {
           </div>
 
           <div className="flex items-center gap-2">
-            {calendarConnected && (
-              <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="rounded-full"
-                    onClick={() => {
-                      setNewEventDate(activeDate);
-                      setNewEventTitle("");
-                      setNewEventDescription("");
-                      setNewEventLocation("");
-                      setNewEventStartTime("09:00");
-                      setNewEventEndTime("10:00");
-                      setNewEventAllDay(false);
-                    }}
-                  >
-                    <Plus className="h-4 w-4 mr-1" />
-                    Add Event
-                  </Button>
-                </DialogTrigger>
+            <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="rounded-full"
+                  disabled={!calendarConnected}
+                  title={!calendarConnected ? "Connect Google Calendar first" : "Add a new event"}
+                  onClick={() => {
+                    if (!calendarConnected) {
+                      return;
+                    }
+                    setNewEventDate(activeDate);
+                    setNewEventTitle("");
+                    setNewEventDescription("");
+                    setNewEventLocation("");
+                    setNewEventStartTime("09:00");
+                    setNewEventEndTime("10:00");
+                    setNewEventAllDay(false);
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Event
+                </Button>
+              </DialogTrigger>
+              {calendarConnected && (
                 <DialogContent className="sm:max-w-[425px]">
                   <DialogHeader>
                     <DialogTitle>Add Calendar Event</DialogTitle>
@@ -589,8 +594,8 @@ export default function Schedule() {
                     </Button>
                   </DialogFooter>
                 </DialogContent>
-              </Dialog>
-            )}
+              )}
+            </Dialog>
             <Button
               variant="outline"
               size="icon"

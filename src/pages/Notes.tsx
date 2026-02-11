@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { 
   Plus, FileText, Search, Trash2, Clock, RotateCcw, 
   Book, FolderOpen, File, ChevronDown, ChevronRight, 
-  MoreHorizontal, Pencil, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, GripVertical
+  MoreHorizontal, Pencil, PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, GripVertical,
+  Heading1, Heading2, Heading3, List, ListOrdered, Quote, Code
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { db } from "@/lib/firebase";
@@ -16,6 +17,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ReactQuill from "react-quill";
 import type { ReactQuillProps } from "react-quill";
@@ -288,6 +290,66 @@ const Notes = () => {
 
   // Mobile states
   const [mobileView, setMobileView] = useState<"list" | "editor">("list");
+
+  // Slash command menu state
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashMenuPosition, setSlashMenuPosition] = useState({ top: 0, left: 0 });
+  const [slashMenuIndex, setSlashMenuIndex] = useState(0);
+  const slashStartRef = useRef<number | null>(null);
+
+  const slashCommands = [
+    { label: "Heading 1", icon: Heading1, action: () => applySlashCommand("header", 1) },
+    { label: "Heading 2", icon: Heading2, action: () => applySlashCommand("header", 2) },
+    { label: "Heading 3", icon: Heading3, action: () => applySlashCommand("header", 3) },
+    { label: "Bullet List", icon: List, action: () => applySlashCommand("list", "bullet") },
+    { label: "Numbered List", icon: ListOrdered, action: () => applySlashCommand("list", "ordered") },
+    { label: "Quote", icon: Quote, action: () => applySlashCommand("blockquote", true) },
+    { label: "Code Block", icon: Code, action: () => applySlashCommand("code-block", true) },
+  ];
+
+  const applySlashCommand = (format: string, value: any) => {
+    if (!quillRef.current || slashStartRef.current === null) return;
+    const quill = quillRef.current.getEditor();
+    const range = quill.getSelection();
+    if (!range) return;
+    
+    // Delete the "/" character
+    quill.deleteText(slashStartRef.current, range.index - slashStartRef.current);
+    quill.setSelection(slashStartRef.current, 0);
+    quill.format(format, value);
+    
+    setShowSlashMenu(false);
+    slashStartRef.current = null;
+  };
+
+  const handleSlashKey = useCallback(() => {
+    if (!quillRef.current || isMobile) return;
+    const quill = quillRef.current.getEditor();
+    const range = quill.getSelection();
+    if (!range) return;
+    
+    // Check if we're at the start of a line
+    const text = quill.getText(0, range.index);
+    const lastNewline = text.lastIndexOf('\n');
+    const lineStart = lastNewline + 1;
+    const textBeforeCursor = text.slice(lineStart, range.index);
+    
+    if (textBeforeCursor === "/") {
+      slashStartRef.current = lineStart;
+      
+      // Get position for menu
+      const bounds = quill.getBounds(range.index);
+      setSlashMenuPosition({
+        top: bounds.top + bounds.height + 8,
+        left: bounds.left,
+      });
+      setSlashMenuIndex(0);
+      setShowSlashMenu(true);
+    } else {
+      setShowSlashMenu(false);
+      slashStartRef.current = null;
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     editorContentRef.current = editorContent;
@@ -1182,7 +1244,7 @@ const Notes = () => {
                     }}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Deleted Pages
+                    Bin
                   </Button>
                 </div>
               )}
@@ -1205,7 +1267,7 @@ const Notes = () => {
                   <>
                     <div className="flex items-center justify-between">
                       <h3 className="font-medium text-sm truncate">
-                        {showBin ? "Deleted Pages" : selectedSection?.name || "Select a section"}
+                        {showBin ? "Bin" : selectedSection?.name || "Select a section"}
                       </h3>
                       <div className="flex items-center gap-1">
                         {selectedSectionId && !showBin && (
@@ -1427,7 +1489,7 @@ const Notes = () => {
                       </Button>
                     </div>
                   </div>
-                  <div className="flex-1 overflow-auto kriyaa-quill-editor">
+                  <div className="flex-1 overflow-auto kriyaa-quill-editor relative">
                     <ReactQuill
                       key={selectedPage.id}
                       theme="snow"
@@ -1436,12 +1498,54 @@ const Notes = () => {
                       onChange={(content) => {
                         setEditorContent(content);
                         scheduleContentSave(selectedPage.id, content);
+                        handleSlashKey();
+                      }}
+                      onKeyDown={(e: React.KeyboardEvent) => {
+                        if (showSlashMenu) {
+                          if (e.key === "ArrowDown") {
+                            e.preventDefault();
+                            setSlashMenuIndex((prev) => (prev + 1) % slashCommands.length);
+                          } else if (e.key === "ArrowUp") {
+                            e.preventDefault();
+                            setSlashMenuIndex((prev) => (prev - 1 + slashCommands.length) % slashCommands.length);
+                          } else if (e.key === "Enter") {
+                            e.preventDefault();
+                            slashCommands[slashMenuIndex].action();
+                          } else if (e.key === "Escape" || e.key === "Backspace") {
+                            setShowSlashMenu(false);
+                            slashStartRef.current = null;
+                          }
+                        }
                       }}
                       modules={quillModules}
                       formats={quillFormats}
                       className="h-full"
-                      placeholder="Start writing..."
+                      placeholder="Start writing... (Type / for commands)"
                     />
+                    
+                    {/* Slash Command Menu */}
+                    {showSlashMenu && (
+                      <div
+                        className="absolute z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[180px]"
+                        style={{ top: slashMenuPosition.top, left: slashMenuPosition.left }}
+                      >
+                        <p className="px-3 py-1 text-xs text-muted-foreground font-medium">Format</p>
+                        {slashCommands.map((cmd, idx) => (
+                          <button
+                            key={cmd.label}
+                            className={cn(
+                              "w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-accent transition-colors",
+                              idx === slashMenuIndex && "bg-accent"
+                            )}
+                            onClick={() => cmd.action()}
+                            onMouseEnter={() => setSlashMenuIndex(idx)}
+                          >
+                            <cmd.icon className="h-4 w-4 text-muted-foreground" />
+                            {cmd.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center justify-between border-t border-border px-4 py-1 bg-muted/10 text-[11px] text-muted-foreground">
                     <span>{getWordCount(editorContent)} words</span>
@@ -1615,10 +1719,11 @@ const Notes = () => {
               <div className="flex gap-2">
                 <Button
                   variant={showBin ? "secondary" : "ghost"}
-                  size="icon"
+                  size="sm"
                   onClick={() => setShowBin(!showBin)}
+                  className="text-xs"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  Bin
                 </Button>
                 <Button
                   size="icon"
@@ -1629,14 +1734,14 @@ const Notes = () => {
               </div>
             </div>
 
-            {/* Search */}
+            {/* Global Search */}
             <div className="p-4 pb-2">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search pages..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search all notes..."
+                  value={globalSearchQuery}
+                  onChange={(e) => setGlobalSearchQuery(e.target.value)}
                   className="pl-9"
                 />
               </div>
@@ -1669,21 +1774,95 @@ const Notes = () => {
                     <p className="text-center text-muted-foreground py-8">No deleted pages</p>
                   )}
                 </div>
-              ) : searchQuery ? (
-                // Search results
-                <div className="space-y-2 pb-4">
-                  {visiblePages.map((page) => (
-                    <div 
-                      key={page.id} 
-                      className="p-3 rounded-lg border bg-card cursor-pointer hover:bg-accent"
-                      onClick={() => selectPage(page.id)}
-                    >
-                      <h4 className="font-medium">{page.title}</h4>
-                      <p className="text-sm text-muted-foreground line-clamp-2">{getNotePreview(page.content)}</p>
+              ) : globalSearchQuery.trim() ? (
+                // Global search results
+                <div className="space-y-4 pb-4">
+                  {globalSearchResults ? (
+                    <>
+                      {/* Notebooks */}
+                      {globalSearchResults.notebooks.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Notebooks</h4>
+                          <div className="space-y-1">
+                            {globalSearchResults.notebooks.map((notebook) => (
+                              <div
+                                key={notebook.id}
+                                className="flex items-center gap-2 p-3 rounded-lg border bg-card cursor-pointer"
+                                onClick={() => {
+                                  setSelectedNotebookId(notebook.id);
+                                  setGlobalSearchQuery("");
+                                  if (!expandedNotebooks.has(notebook.id)) toggleNotebook(notebook.id);
+                                }}
+                              >
+                                <Book className="h-5 w-5" style={{ color: notebook.color }} />
+                                <span className="font-medium">{notebook.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Sections */}
+                      {globalSearchResults.sections.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Sections</h4>
+                          <div className="space-y-1">
+                            {globalSearchResults.sections.map((section) => {
+                              const parentNotebook = notebooks.find(n => n.id === section.notebookId);
+                              return (
+                                <div
+                                  key={section.id}
+                                  className="flex items-center gap-2 p-3 rounded-lg border bg-card cursor-pointer"
+                                  onClick={() => {
+                                    selectSection(section.id, section.notebookId);
+                                    setGlobalSearchQuery("");
+                                  }}
+                                >
+                                  <FolderOpen className="h-5 w-5" style={{ color: parentNotebook?.color }} />
+                                  <div>
+                                    <span className="font-medium block">{section.name}</span>
+                                    {parentNotebook && <span className="text-xs text-muted-foreground">{parentNotebook.name}</span>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {/* Pages */}
+                      {globalSearchResults.pages.length > 0 && (
+                        <div>
+                          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Pages</h4>
+                          <div className="space-y-1">
+                            {globalSearchResults.pages.map((page) => {
+                              const parentSection = sections.find(s => s.id === page.sectionId);
+                              const parentNotebook = parentSection ? notebooks.find(n => n.id === parentSection.notebookId) : null;
+                              return (
+                                <div
+                                  key={page.id}
+                                  className="p-3 rounded-lg border bg-card cursor-pointer"
+                                  onClick={() => {
+                                    if (parentSection) selectSection(parentSection.id, parentSection.notebookId);
+                                    selectPage(page.id);
+                                    setGlobalSearchQuery("");
+                                  }}
+                                >
+                                  <h4 className="font-medium">{page.title}</h4>
+                                  <p className="text-sm text-muted-foreground line-clamp-2">{getNotePreview(page.content)}</p>
+                                  <span className="text-xs text-muted-foreground">
+                                    {parentNotebook?.name}{parentSection ? ` / ${parentSection.name}` : ''}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center py-8">
+                      <Search className="h-8 w-8 mx-auto mb-2 opacity-20" />
+                      <p className="text-muted-foreground">No results found</p>
                     </div>
-                  ))}
-                  {visiblePages.length === 0 && (
-                    <p className="text-center text-muted-foreground py-8">No pages found</p>
                   )}
                 </div>
               ) : (
@@ -1702,14 +1881,33 @@ const Notes = () => {
                           {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           <Book className="h-5 w-5" style={{ color: notebook.color }} />
                           <span className="font-medium flex-1">{notebook.name}</span>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            onClick={(e) => { e.stopPropagation(); setDialogNotebookId(notebook.id); setShowNewSectionDialog(true); }}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-8 w-8"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDialogNotebookId(notebook.id); setShowNewSectionDialog(true); }}>
+                                <Plus className="mr-2 h-4 w-4" />
+                                Add Section
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setRenamingId(notebook.id); setRenamingName(notebook.name); }}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); deleteNotebook(notebook.id); }} className="text-destructive">
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                         
                         {isExpanded && (
@@ -1733,21 +1931,41 @@ const Notes = () => {
                                       }
                                     }}
                                   >
+                                    {isSectionExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                                     <FolderOpen className="h-4 w-4" style={{ color: notebook.color }} />
                                     <span className="flex-1">{section.name}</span>
                                     <span className="text-xs text-muted-foreground">{sectionPages.length}</span>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-7 w-7"
-                                      onClick={(e) => { 
-                                        e.stopPropagation(); 
-                                        setSelectedSectionId(section.id);
-                                        setShowNewPageDialog(true); 
-                                      }}
-                                    >
-                                      <Plus className="h-3 w-3" />
-                                    </Button>
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          className="h-7 w-7"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <MoreHorizontal className="h-3 w-3" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          setSelectedSectionId(section.id);
+                                          setShowNewPageDialog(true); 
+                                        }}>
+                                          <Plus className="mr-2 h-4 w-4" />
+                                          Add Page
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setRenamingId(section.id); setRenamingName(section.name); }}>
+                                          <Pencil className="mr-2 h-4 w-4" />
+                                          Rename
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); deleteSection(section.id); }} className="text-destructive">
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          Delete
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
                                   </div>
                                   
                                   {isSectionExpanded && (
@@ -1805,6 +2023,40 @@ const Notes = () => {
                 className="border-none bg-transparent text-lg font-semibold focus-visible:ring-0 px-0"
                 placeholder="Page title..."
               />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 p-2" align="end">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search in page..."
+                      className="pl-8"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && quillRef.current) {
+                          const quill = quillRef.current.getEditor();
+                          const text = quill.getText();
+                          const searchTerm = (e.target as HTMLInputElement).value.toLowerCase();
+                          if (searchTerm) {
+                            const index = text.toLowerCase().indexOf(searchTerm);
+                            if (index !== -1) {
+                              quill.setSelection(index, searchTerm.length);
+                              toast.success(`Found "${searchTerm}"`);
+                            } else {
+                              toast.error("Text not found");
+                            }
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">Press Enter to search</p>
+                </PopoverContent>
+              </Popover>
               <Button
                 variant="ghost"
                 size="icon"
@@ -1819,7 +2071,7 @@ const Notes = () => {
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 overflow-auto kriyaa-quill-editor">
               <ReactQuill
                 key={selectedPage?.id}
                 theme="snow"

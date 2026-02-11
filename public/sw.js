@@ -1,11 +1,9 @@
-const CACHE_NAME = "Ekaagra-planner-static-v2";
+const CACHE_NAME = "Ekaagra-planner-static-v3";
 
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/logo.png",
   "/favicon.ico",
-  "/index.html",
-  "/",
 ];
 
 const toNoCacheRequest = (req) => {

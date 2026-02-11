@@ -378,3 +378,28 @@
   border-radius: 8px;
   margin: 0.75rem 0;
 }
+
+/* Mobile sticky toolbar */
+@media (max-width: 768px) {
+  .kriyaa-quill-editor .ql-toolbar.ql-snow {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: hsl(var(--card));
+    backdrop-filter: blur(8px);
+  }
+  
+  .kriyaa-quill-editor .ql-toolbar .ql-formats {
+    margin-right: 4px;
+  }
+  
+  .kriyaa-quill-editor .ql-toolbar button {
+    width: 28px !important;
+    height: 28px !important;
+    padding: 4px !important;
+  }
+  
+  .kriyaa-quill-editor .ql-snow .ql-picker-label {
+    padding: 2px 4px !important;
+  }
+}
