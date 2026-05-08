@@ -16,6 +16,7 @@ import { format } from "date-fns";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Task } from "@/types";
 
 import {
@@ -627,6 +628,7 @@ const Tasks = () => {
   const [newDueDate, setNewDueDate] = useState<Date | undefined>(undefined);
   const [newReminder, setNewReminder] = useState(false);
   const [newRepeat, setNewRepeat] = useState<"daily" | "weekly" | "monthly" | "none">("none");
+  const [isCreateTodoOpen, setIsCreateTodoOpen] = useState(false);
 
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -668,6 +670,12 @@ const Tasks = () => {
     return () => unsubscribe();
   }, [user]);
 
+  useEffect(() => {
+    if (!isCreateTodoOpen) return;
+    const id = setTimeout(() => newTaskInputRef.current?.focus(), 80);
+    return () => clearTimeout(id);
+  }, [isCreateTodoOpen]);
+
 
   const addTask = async (parentId: string | null = null) => {
     if (!newTask.trim() && !parentId) return; // Allow empty if adding subtask via dialog? No, let's stick to input.
@@ -684,7 +692,7 @@ const Tasks = () => {
     const nextOrder = siblingOrders.length > 0 ? minOrder - 1 : 0;
 
     await addDoc(collection(db, "tasks"), {
-      title: newTask,
+      title: newTask.trim(),
       priority: newPriority,
       completed: false,
       category: newCategory,
@@ -702,6 +710,9 @@ const Tasks = () => {
     setNewDueDate(undefined);
     setNewReminder(false);
     setNewRepeat("none");
+    if (!parentId) {
+      setIsCreateTodoOpen(false);
+    }
   };
 
   const saveTaskTitle = async (taskId: string, title: string) => {
@@ -999,69 +1010,11 @@ const Tasks = () => {
           <p className="text-muted-foreground mt-1">Organize and track your daily priorities</p>
         </div>
 
-        <div className="mb-6 flex flex-col gap-4 rounded-xl border border-border bg-card p-6 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
-            <Input
-              ref={newTaskInputRef}
-              placeholder="Add a new task..."
-              value={newTask}
-              onChange={(e) => setNewTask(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addTask()}
-              className="flex-1"
-            />
-            <Button onClick={() => addTask()} className="w-full sm:w-auto">
-              Add Task
-            </Button>
-          </div>
-          
-          <div className="flex flex-wrap gap-4 items-center">
-             <Select value={newPriority} onValueChange={(v: any) => setNewPriority(v)}>
-              <SelectTrigger className="w-full sm:w-[130px]">
-                <SelectValue placeholder="Priority" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="low">Low</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={newCategory} onValueChange={setNewCategory}>
-              <SelectTrigger className="w-full sm:w-[160px]">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                {categories.map((cat) => (
-                  <SelectItem key={cat.id} value={cat.name}>
-                    {cat.icon} {cat.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-full sm:w-[240px] justify-start text-left font-normal",
-                    !newDueDate && "text-muted-foreground",
-                  )}
-                >
-                  <Calendar className="mr-2 h-4 w-4" />
-                  {newDueDate ? format(newDueDate, "PPP") : <span>Pick a due date</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <CalendarComponent
-                  mode="single"
-                  selected={newDueDate}
-                  onSelect={setNewDueDate}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
+        <div className="mb-6 flex items-center justify-end">
+          <Button onClick={() => setIsCreateTodoOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Create Todo
+          </Button>
         </div>
 
         {/* Filters & Sorting */}
@@ -1232,16 +1185,86 @@ const Tasks = () => {
         </DndContext>
 
         <Button
-          className="fixed bottom-8 right-8 z-50 h-14 w-14 rounded-full border border-border/40 shadow-xl hover:shadow-2xl transition-all duration-200"
+          className="fixed bottom-24 right-6 md:bottom-8 md:right-8 z-50 h-14 w-14 rounded-full border border-border/40 shadow-xl hover:shadow-2xl transition-all duration-200"
           size="icon"
-          onClick={() => {
-            newTaskInputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-            setTimeout(() => newTaskInputRef.current?.focus(), 200);
-          }}
+          onClick={() => setIsCreateTodoOpen(true)}
           aria-label="Add task"
         >
           <Plus className="h-5 w-5" />
         </Button>
+
+        <Dialog open={isCreateTodoOpen} onOpenChange={setIsCreateTodoOpen}>
+          <DialogContent className="sm:max-w-[640px]">
+            <DialogHeader>
+              <DialogTitle>Create Todo</DialogTitle>
+            </DialogHeader>
+
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+                <Input
+                  ref={newTaskInputRef}
+                  placeholder="Add a new task..."
+                  value={newTask}
+                  onChange={(e) => setNewTask(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addTask()}
+                  className="flex-1"
+                />
+                <Button onClick={() => addTask()} className="w-full sm:w-auto">
+                  Add Task
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-4 items-center">
+                <Select value={newPriority} onValueChange={(v: any) => setNewPriority(v)}>
+                  <SelectTrigger className="w-full sm:w-[130px]">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={newCategory} onValueChange={setNewCategory}>
+                  <SelectTrigger className="w-full sm:w-[160px]">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((cat) => (
+                      <SelectItem key={cat.id} value={cat.name}>
+                        {cat.icon} {cat.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full sm:w-[240px] justify-start text-left font-normal",
+                        !newDueDate && "text-muted-foreground",
+                      )}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {newDueDate ? format(newDueDate, "PPP") : <span>Pick a due date</span>}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={newDueDate}
+                      onSelect={setNewDueDate}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

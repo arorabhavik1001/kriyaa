@@ -5,7 +5,7 @@ import { RecentNotes } from "@/components/dashboard/RecentNotes";
 import { UpcomingEvents } from "@/components/dashboard/UpcomingEvents";
 import { Bookmarks } from "@/components/dashboard/Bookmarks";
 import { FocusTimer } from "@/components/dashboard/FocusTimer";
-import { CheckSquare, FileText, Clock, SlidersHorizontal, GripVertical, Sparkles } from "lucide-react";
+import { CheckSquare, FileText, Clock, SlidersHorizontal, GripVertical, Sparkles, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useEffect, useMemo, useState } from "react";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
@@ -36,10 +36,21 @@ import { useIsMobile } from "@/hooks/use-mobile";
 
 type WidgetId = "events" | "bookmarks" | "tasks" | "notes" | "focus";
 
+const ALL_WIDGETS: WidgetId[] = ["tasks", "notes", "events", "focus", "bookmarks"];
+
+const WIDGET_LABELS: Record<WidgetId, string> = {
+  tasks: "Quick Tasks",
+  notes: "Recent Notes",
+  events: "Upcoming Events",
+  bookmarks: "Bookmarks",
+  focus: "Focus Timer",
+};
+
 const DEFAULT_LAYOUT = {
   left: ["tasks", "notes"] as WidgetId[],
   right: ["events", "focus", "bookmarks"] as WidgetId[],
   panelSizes: [67, 33] as [number, number],
+  hidden: [] as WidgetId[],
 };
 
 const widgetNodes: Record<WidgetId, React.ReactNode> = {
@@ -196,6 +207,7 @@ const Index = () => {
         panelSizes: Array.isArray(parsed.panelSizes) && parsed.panelSizes.length === 2
           ? parsed.panelSizes
           : DEFAULT_LAYOUT.panelSizes,
+        hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
       };
       setLayout(next);
     } catch {
@@ -260,12 +272,56 @@ const Index = () => {
             variant={customizeMode ? "default" : "outline"}
             size="sm"
             onClick={() => setCustomizeMode((v) => !v)}
-            className="hidden shrink-0 sm:inline-flex"
+            className="shrink-0"
           >
             <SlidersHorizontal className="h-4 w-4 mr-2" />
             {customizeMode ? "Done" : "Customize"}
           </Button>
         </div>
+
+        {/* Widget visibility toggles in customize mode */}
+        {customizeMode && (
+          <div className="mb-6 rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4">
+            <h3 className="text-sm font-medium mb-3">Show / Hide Sections</h3>
+            <div className="flex flex-wrap gap-2">
+              {ALL_WIDGETS.map((wId) => {
+                const isHidden = layout.hidden.includes(wId);
+                return (
+                  <Button
+                    key={wId}
+                    variant={isHidden ? "outline" : "secondary"}
+                    size="sm"
+                    className={cn("gap-1.5 text-xs", isHidden && "opacity-60")}
+                    onClick={() => {
+                      setLayout((prev) => {
+                        const wasHidden = prev.hidden.includes(wId);
+                        if (wasHidden) {
+                          // Re-enable: add to left column if not already in a column
+                          const inLeft = prev.left.includes(wId);
+                          const inRight = prev.right.includes(wId);
+                          return {
+                            ...prev,
+                            hidden: prev.hidden.filter((h) => h !== wId),
+                            left: !inLeft && !inRight ? [...prev.left, wId] : prev.left,
+                          };
+                        } else {
+                          // Hide
+                          return {
+                            ...prev,
+                            hidden: [...prev.hidden, wId],
+                          };
+                        }
+                      });
+                    }}
+                  >
+                    {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    {WIDGET_LABELS[wId]}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -360,62 +416,66 @@ const Index = () => {
             });
           }}
         >
-          {isMobile ? (
-            <div className="space-y-6">
+          {(() => {
+            const visibleLeft = layout.left.filter((id) => !layout.hidden.includes(id));
+            const visibleRight = layout.right.filter((id) => !layout.hidden.includes(id));
+            return isMobile ? (
               <div className="space-y-6">
-                <SortableContext items={layout.left} strategy={verticalListSortingStrategy}>
-                  {layout.left.map((id) => (
-                    <SortableWidget key={id} id={id} customizeMode={customizeMode} />
-                  ))}
-                </SortableContext>
-              </div>
-              <div className="space-y-6">
-                <SortableContext items={layout.right} strategy={verticalListSortingStrategy}>
-                  {layout.right.map((id) => (
-                    <SortableWidget key={id} id={id} customizeMode={customizeMode} />
-                  ))}
-                </SortableContext>
-              </div>
-            </div>
-          ) : (
-            <ResizablePanelGroup
-              key={`panel-group-${user?.uid}`}
-              direction="horizontal"
-              onLayout={(sizes) => {
-                if (!Array.isArray(sizes) || sizes.length !== 2) return;
-                setLayout((prev) => ({ ...prev, panelSizes: [sizes[0], sizes[1]] as [number, number] }));
-              }}
-              className="h-full"
-            >
-              <ResizablePanel 
-                defaultSize={layout.panelSizes[0]} 
-                minSize={35}
-                id="left-panel"
-              >
-                <div className="space-y-6 pr-3">
-                  <SortableContext items={layout.left} strategy={verticalListSortingStrategy}>
-                    {layout.left.map((id) => (
+                <div className="space-y-6">
+                  <SortableContext items={visibleLeft} strategy={verticalListSortingStrategy}>
+                    {visibleLeft.map((id) => (
                       <SortableWidget key={id} id={id} customizeMode={customizeMode} />
                     ))}
                   </SortableContext>
                 </div>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
-              <ResizablePanel 
-                defaultSize={layout.panelSizes[1]} 
-                minSize={20}
-                id="right-panel"
-              >
-                <div className="space-y-6 pl-3">
-                  <SortableContext items={layout.right} strategy={verticalListSortingStrategy}>
-                    {layout.right.map((id) => (
+                <div className="space-y-6">
+                  <SortableContext items={visibleRight} strategy={verticalListSortingStrategy}>
+                    {visibleRight.map((id) => (
                       <SortableWidget key={id} id={id} customizeMode={customizeMode} />
                     ))}
                   </SortableContext>
                 </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          )}
+              </div>
+            ) : (
+              <ResizablePanelGroup
+                key={`panel-group-${user?.uid}`}
+                direction="horizontal"
+                onLayout={(sizes) => {
+                  if (!Array.isArray(sizes) || sizes.length !== 2) return;
+                  setLayout((prev) => ({ ...prev, panelSizes: [sizes[0], sizes[1]] as [number, number] }));
+                }}
+                className="h-full"
+              >
+                <ResizablePanel 
+                  defaultSize={layout.panelSizes[0]} 
+                  minSize={35}
+                  id="left-panel"
+                >
+                  <div className="space-y-6 pr-3">
+                    <SortableContext items={visibleLeft} strategy={verticalListSortingStrategy}>
+                      {visibleLeft.map((id) => (
+                        <SortableWidget key={id} id={id} customizeMode={customizeMode} />
+                      ))}
+                    </SortableContext>
+                  </div>
+                </ResizablePanel>
+                <ResizableHandle withHandle />
+                <ResizablePanel 
+                  defaultSize={layout.panelSizes[1]} 
+                  minSize={20}
+                  id="right-panel"
+                >
+                  <div className="space-y-6 pl-3">
+                    <SortableContext items={visibleRight} strategy={verticalListSortingStrategy}>
+                      {visibleRight.map((id) => (
+                        <SortableWidget key={id} id={id} customizeMode={customizeMode} />
+                      ))}
+                    </SortableContext>
+                  </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            );
+          })()}
 
           <DragOverlay>
             {activeDragId ? (

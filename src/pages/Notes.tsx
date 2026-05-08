@@ -1710,7 +1710,7 @@ const Notes = () => {
   // Mobile Layout
   return (
     <DashboardLayout>
-      <div className="h-[calc(100vh-2rem)] animate-fade-in flex flex-col">
+      <div className="h-[calc(100vh-5rem)] animate-fade-in flex flex-col">
         {mobileView === "list" ? (
           <>
             {/* Mobile Header */}

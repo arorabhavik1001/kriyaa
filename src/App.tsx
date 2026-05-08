@@ -16,6 +16,8 @@ import Settings from "./pages/Settings";
 import Schedule from "./pages/Schedule";
 import NotFound from "./pages/NotFound";
 import { CommandMenu } from "./components/CommandMenu";
+import { FocusTimerProvider } from "./contexts/FocusTimerContext";
+import { FocusTimerOverlay } from "./components/dashboard/FocusTimerOverlay";
 
 const queryClient = new QueryClient();
 
@@ -33,7 +35,9 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <FocusTimerProvider>
           <CommandMenu />
+          <FocusTimerOverlay />
           <Routes>
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/login" element={<Login />} />
@@ -103,6 +107,7 @@ const App = () => (
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </FocusTimerProvider>
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>

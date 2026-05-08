@@ -1,103 +1,18 @@
-import { useState, useRef, useEffect, useCallback } from "react";
 import { Timer, Play, Pause, RotateCcw, Coffee, Brain, Settings2 } from "lucide-react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { useFocusTimer } from "@/contexts/FocusTimerContext";
 
-type TimerMode = "work" | "break";
-
-const DEFAULT_WORK = 25 * 60; // 25 min
-const DEFAULT_BREAK = 5 * 60; // 5 min
+const PRESET_DURATIONS = [
+  { label: "15 min", work: 15 * 60, break: 3 * 60 },
+  { label: "25 min", work: 25 * 60, break: 5 * 60 },
+  { label: "50 min", work: 50 * 60, break: 10 * 60 },
+];
 
 export function FocusTimer() {
-  const [workDuration, setWorkDuration] = useState(DEFAULT_WORK);
-  const [breakDuration, setBreakDuration] = useState(DEFAULT_BREAK);
-  const [mode, setMode] = useState<TimerMode>("work");
-  const [secondsLeft, setSecondsLeft] = useState(DEFAULT_WORK);
-  const [running, setRunning] = useState(false);
-  const [sessions, setSessions] = useState(0);
+  const timer = useFocusTimer();
   const [showSettings, setShowSettings] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const clearTimer = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!running) {
-      clearTimer();
-      return;
-    }
-
-    intervalRef.current = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearTimer();
-          setRunning(false);
-
-          if (mode === "work") {
-            setSessions((s) => s + 1);
-            toast.success("Focus session complete! 🎉", {
-              description: "Time for a break.",
-            });
-            setMode("break");
-            setSecondsLeft(breakDuration);
-          } else {
-            toast.success("Break over!", {
-              description: "Ready for another focus session?",
-            });
-            setMode("work");
-            setSecondsLeft(workDuration);
-          }
-
-          // Try notification
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            new Notification(
-              mode === "work" ? "Focus session done!" : "Break over!",
-              { body: mode === "work" ? "Take a short break." : "Let's get back to work." },
-            );
-          }
-
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return clearTimer;
-  }, [running, mode, workDuration, breakDuration, clearTimer]);
-
-  // Request notification permission on mount
-  useEffect(() => {
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  const toggleRunning = () => setRunning((r) => !r);
-
-  const reset = () => {
-    clearTimer();
-    setRunning(false);
-    setMode("work");
-    setSecondsLeft(workDuration);
-  };
-
-  const totalDuration = mode === "work" ? workDuration : breakDuration;
-  const progress = ((totalDuration - secondsLeft) / totalDuration) * 100;
-
-  const minutes = Math.floor(secondsLeft / 60);
-  const secs = secondsLeft % 60;
-  const display = `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-
-  const PRESET_DURATIONS = [
-    { label: "15 min", work: 15 * 60, break: 3 * 60 },
-    { label: "25 min", work: 25 * 60, break: 5 * 60 },
-    { label: "50 min", work: 50 * 60, break: 10 * 60 },
-  ];
 
   return (
     <div className="rounded-xl border border-border bg-card flex flex-col shadow-sm overflow-hidden">
@@ -110,7 +25,7 @@ export function FocusTimer() {
             <span className="truncate">Focus Timer</span>
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {sessions > 0 ? `${sessions} session${sessions > 1 ? "s" : ""} today` : "Stay focused, stay sharp"}
+            {timer.sessions > 0 ? `${timer.sessions} session${timer.sessions > 1 ? "s" : ""} today` : "Stay focused, stay sharp"}
           </p>
         </div>
         <Button
@@ -129,17 +44,17 @@ export function FocusTimer() {
           <span
             className={cn(
               "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold transition-colors",
-              mode === "work"
+              timer.mode === "work"
                 ? "bg-primary/10 text-primary"
                 : "bg-success/10 text-success",
             )}
           >
-            {mode === "work" ? (
+            {timer.mode === "work" ? (
               <Brain className="h-3.5 w-3.5" />
             ) : (
               <Coffee className="h-3.5 w-3.5" />
             )}
-            {mode === "work" ? "Focus" : "Break"}
+            {timer.mode === "work" ? "Focus" : "Break"}
           </span>
         </div>
 
@@ -159,17 +74,17 @@ export function FocusTimer() {
               cy="60"
               r="52"
               fill="none"
-              stroke={mode === "work" ? "hsl(var(--primary))" : "hsl(var(--success))"}
+              stroke={timer.mode === "work" ? "hsl(var(--primary))" : "hsl(var(--success))"}
               strokeWidth="6"
               strokeLinecap="round"
               strokeDasharray={2 * Math.PI * 52}
-              strokeDashoffset={2 * Math.PI * 52 * (1 - progress / 100)}
+              strokeDashoffset={2 * Math.PI * 52 * (1 - timer.progress / 100)}
               className="transition-all duration-1000 ease-linear"
             />
           </svg>
           <div className="absolute flex flex-col items-center">
             <span className="text-3xl font-bold tabular-nums text-foreground tracking-tight">
-              {display}
+              {timer.display}
             </span>
           </div>
         </div>
@@ -180,7 +95,7 @@ export function FocusTimer() {
             variant="outline"
             size="icon"
             className="h-10 w-10 rounded-full"
-            onClick={reset}
+            onClick={timer.reset}
             title="Reset"
           >
             <RotateCcw className="h-4 w-4" />
@@ -189,15 +104,15 @@ export function FocusTimer() {
             size="icon"
             className={cn(
               "h-14 w-14 rounded-full shadow-lg transition-all",
-              running
+              timer.running
                 ? "bg-destructive hover:bg-destructive/90"
-                : mode === "work"
+                : timer.mode === "work"
                   ? "bg-primary hover:bg-primary/90"
                   : "bg-success hover:bg-success/90",
             )}
-            onClick={toggleRunning}
+            onClick={timer.toggleRunning}
           >
-            {running ? (
+            {timer.running ? (
               <Pause className="h-5 w-5 text-white" />
             ) : (
               <Play className="h-5 w-5 text-white ml-0.5" />
@@ -216,17 +131,10 @@ export function FocusTimer() {
               {PRESET_DURATIONS.map((p) => (
                 <Button
                   key={p.label}
-                  variant={workDuration === p.work ? "default" : "outline"}
+                  variant={timer.workDuration === p.work ? "default" : "outline"}
                   size="sm"
                   className="flex-1 text-xs"
-                  onClick={() => {
-                    setWorkDuration(p.work);
-                    setBreakDuration(p.break);
-                    if (!running) {
-                      setMode("work");
-                      setSecondsLeft(p.work);
-                    }
-                  }}
+                  onClick={() => timer.setPreset(p.work, p.break)}
                 >
                   {p.label}
                 </Button>
