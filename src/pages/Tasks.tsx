@@ -348,8 +348,21 @@ const TaskItem = ({
 
                 {/* Subtask progress bar */}
                 {subtaskProgress && subtaskProgress.total > 0 && !isEditing && (
-                  <div className="flex items-center gap-2 mt-1.5">
-                    <div className="h-1.5 flex-1 max-w-[120px] rounded-full bg-border overflow-hidden">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span
+                      className={cn(
+                        "flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]",
+                        priorityColors[task.priority],
+                      )}
+                    >
+                      {task.priority}
+                    </span>
+                    {task.category ? (
+                      <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        {task.category}
+                      </span>
+                    ) : null}
+                    <div className="h-1.5 flex-1 min-w-[88px] max-w-[120px] rounded-full bg-border overflow-hidden">
                       <div
                         className={cn(
                           "h-full rounded-full transition-all duration-500",
@@ -362,7 +375,7 @@ const TaskItem = ({
                         }}
                       />
                     </div>
-                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
                       {subtaskProgress.done}/{subtaskProgress.total}
                     </span>
                   </div>
@@ -372,15 +385,17 @@ const TaskItem = ({
               <div className="hidden sm:flex items-center gap-2">
                 {!isEditing ? (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <span
-                      className={cn(
-                        "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]",
-                        priorityColors[task.priority],
-                      )}
-                    >
-                      {task.priority}
-                    </span>
-                    {task.category ? (
+                    {!subtaskProgress || subtaskProgress.total === 0 ? (
+                      <span
+                        className={cn(
+                          "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]",
+                          priorityColors[task.priority],
+                        )}
+                      >
+                        {task.priority}
+                      </span>
+                    ) : null}
+                    {task.category && (!subtaskProgress || subtaskProgress.total === 0) ? (
                       <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium">
                         {task.category}
                       </span>
@@ -449,15 +464,17 @@ const TaskItem = ({
             <div className="mt-2 flex items-center justify-between gap-2 sm:hidden">
               {!isEditing ? (
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                  <span
-                    className={cn(
-                      "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]",
-                      priorityColors[task.priority],
-                    )}
-                  >
-                    {task.priority}
-                  </span>
-                  {task.category ? (
+                  {!subtaskProgress || subtaskProgress.total === 0 ? (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]",
+                        priorityColors[task.priority],
+                      )}
+                    >
+                      {task.priority}
+                    </span>
+                  ) : null}
+                  {task.category && (!subtaskProgress || subtaskProgress.total === 0) ? (
                     <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium">
                       {task.category}
                     </span>

@@ -173,8 +173,14 @@ export const TaskItem = ({
 
           {/* Subtask progress bar */}
           {subtaskProgress && subtaskProgress.total > 0 && !isEditing && (
-            <div className="flex items-center gap-2 mt-1">
-              <div className="h-1 flex-1 max-w-[100px] rounded-full bg-border overflow-hidden">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className={cn(
+                "shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border",
+                priorityColors[task.priority as keyof typeof priorityColors]
+              )}>
+                {task.priority || "medium"}
+              </span>
+              <div className="h-1 flex-1 min-w-[76px] max-w-[100px] rounded-full bg-border overflow-hidden">
                 <div
                   className={cn(
                     "h-full rounded-full transition-all duration-500",
@@ -187,19 +193,21 @@ export const TaskItem = ({
                   }}
                 />
               </div>
-              <span className="text-[10px] text-muted-foreground tabular-nums">
+              <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
                 {subtaskProgress.done}/{subtaskProgress.total}
               </span>
             </div>
           )}
 
           <div className="flex items-center gap-2 mt-0.5">
-            <span className={cn(
-              "text-[10px] px-1.5 py-0.5 rounded-full border",
-              priorityColors[task.priority as keyof typeof priorityColors]
-            )}>
-              {task.priority || "medium"}
-            </span>
+            {(!subtaskProgress || subtaskProgress.total === 0) && (
+              <span className={cn(
+                "text-[10px] px-1.5 py-0.5 rounded-full border",
+                priorityColors[task.priority as keyof typeof priorityColors]
+              )}>
+                {task.priority || "medium"}
+              </span>
+            )}
             {task.dueDate && (
               <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Clock className="h-3 w-3" />
